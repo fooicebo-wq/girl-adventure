@@ -238,6 +238,12 @@ function checkAABB(r1, r2) {
     );
 }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function fitText(ctx, text, x, y, maxW, size, color) {   // 文字太寬就自動縮小（過關／死亡提示用）
+    let sz = size;
+    ctx.font = `bold ${sz}px ${FONT}`;
+    while (sz > 14 && ctx.measureText(text).width > maxW) { sz -= 2; ctx.font = `bold ${sz}px ${FONT}`; }
+    ctx.fillStyle = color; ctx.fillText(text, x, y);
+}
 function mulberry32(a) {                      // 可重現的亂數（同一首歌每次聽都一樣）
     return function () {
         a |= 0; a = a + 0x6D2B79F5 | 0;
