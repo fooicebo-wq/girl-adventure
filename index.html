@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Q版小女孩大冒險 - 洛克人絕招奪取版</title>
+    <title>Q妹救爸記</title>
     <style>
         * {
             box-sizing: border-box;
@@ -11,61 +11,74 @@
             user-select: none;
             -webkit-user-select: none;
             -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
         }
-        body, html {
+        html, body {
             width: 100%; height: 100%;
             background-color: #0b0d14; color: #fff;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft JhengHei", sans-serif;
-            overflow: hidden; touch-action: none;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft JhengHei", "PingFang TC", sans-serif;
+            overflow: hidden; touch-action: none; overscroll-behavior: none;
         }
         #viewport-wrapper {
-            position: relative; width: 100vw; height: 100vh;
+            position: fixed; inset: 0;
             display: flex; align-items: center; justify-content: center;
             background: #000;
         }
-        canvas {
-            width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated;
-        }
-        .touch-ui {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; z-index: 10;
-        }
+        canvas { display: block; }
+
+        /* ---------- 觸控操作區（字體放大：使用者老花眼） ---------- */
+        .touch-ui { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
         .btn-group {
-            position: absolute; bottom: 24px; pointer-events: auto; display: flex; gap: 14px;
+            position: absolute; bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+            pointer-events: auto; display: flex; gap: 14px;
         }
-        .d-pad { left: 20px; }
-        .action-pad { right: 20px; align-items: flex-end; }
+        .d-pad { left: calc(20px + env(safe-area-inset-left, 0px)); }
+        .action-pad { right: calc(20px + env(safe-area-inset-right, 0px)); align-items: flex-end; }
         .v-btn {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             border-radius: 50%; background: rgba(255, 255, 255, 0.2);
-            border: 2px solid rgba(255, 255, 255, 0.4); color: #fff; font-weight: bold;
+            border: 2px solid rgba(255, 255, 255, 0.45); color: #fff; font-weight: 800;
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4); backdrop-filter: blur(4px);
-            transition: transform 0.06s;
+            transition: transform 0.06s; font-family: inherit;
         }
         .v-btn:active, .v-btn.active {
             transform: scale(0.92); background: rgba(255, 107, 139, 0.65); border-color: #ff6b8b;
         }
-        .btn-dir { width: 66px; height: 66px; font-size: 24px; }
-        .btn-jump { width: 66px; height: 66px; font-size: 18px; background: rgba(76, 201, 240, 0.25); border-color: #4cc9f0; }
-        .btn-slide { width: 54px; height: 54px; font-size: 15px; margin-bottom: 6px; background: rgba(255, 214, 102, 0.25); border-color: #ffd166; }
-        .btn-shoot { width: 76px; height: 76px; font-size: 18px; background: rgba(255, 94, 151, 0.35); border-color: #ff5e97; }
+        .btn-dir { width: 72px; height: 72px; font-size: 30px; }
+        .btn-jump { width: 72px; height: 72px; font-size: 24px; background: rgba(76, 201, 240, 0.25); border-color: #4cc9f0; }
+        .btn-slide { width: 60px; height: 60px; font-size: 21px; margin-bottom: 6px; background: rgba(255, 214, 102, 0.25); border-color: #ffd166; }
+        .btn-shoot { width: 84px; height: 84px; font-size: 24px; background: rgba(255, 94, 151, 0.35); border-color: #ff5e97; }
         .btn-shoot.charging { animation: pulseGlow 0.4s infinite alternate; }
         @keyframes pulseGlow {
             from { box-shadow: 0 0 10px #ff5e97; border-color: #fff; }
             to { box-shadow: 0 0 25px #ffd166; border-color: #ffd166; }
         }
+        .btn-label { font-size: 12px; opacity: 0.85; margin-top: -2px; letter-spacing: 0.04em; }
         .btn-top-bar {
-            position: absolute; top: 16px; right: 16px; display: flex; gap: 8px; pointer-events: auto;
+            position: absolute; top: calc(10px + env(safe-area-inset-top, 0px)); right: calc(12px + env(safe-area-inset-right, 0px));
+            display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: 100%;
+            pointer-events: auto;
         }
         .small-btn {
-            height: 34px; padding: 0 12px; font-size: 12px; font-weight: bold;
-            border-radius: 17px; background: rgba(0, 0, 0, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.4); color: #fff;
+            height: 44px; min-width: 44px; padding: 0 14px; font-size: 17px; font-weight: 800; font-family: inherit;
+            border-radius: 22px; background: rgba(0, 0, 0, 0.62);
+            border: 2px solid rgba(255, 255, 255, 0.45); color: #fff;
         }
-        .btn-weapon-toggle {
-            background: rgba(255, 107, 139, 0.65); border-color: #ffd166;
-        }
-        .btn-label { font-size: 9px; opacity: 0.8; margin-top: -2px; }
+        .small-btn:active { background: rgba(255, 107, 139, 0.7); }
+        .btn-weapon-toggle { background: rgba(255, 107, 139, 0.7); border-color: #ffd166; }
+        @media (pointer: coarse) { .key-hint { display: none !important; } }
+
+        /* ---------- 直立手機版面：遊戲畫面貼上緣、操作區在下方拇指範圍 ---------- */
+        body.portrait #viewport-wrapper { align-items: flex-start; }
+        body.portrait .btn-top-bar { top: calc(var(--canvas-bottom, 260px) + 8px); left: 0; right: 0; justify-content: center; }
+        body.portrait .btn-group { bottom: calc(26px + env(safe-area-inset-bottom, 0px)); gap: 10px; }
+        body.portrait .d-pad { left: 12px; }
+        body.portrait .action-pad { right: 12px; width: 46vw; flex-wrap: wrap-reverse; justify-content: flex-end; align-content: flex-start; align-items: flex-start; }
+        body.portrait .btn-dir { width: min(19vw, 96px); height: min(19vw, 96px); font-size: 34px; }
+        body.portrait .btn-jump { order: 1; width: min(19vw, 96px); height: min(19vw, 96px); font-size: 24px; }
+        body.portrait .btn-shoot { order: 2; width: min(22vw, 104px); height: min(22vw, 104px); font-size: 24px; }
+        body.portrait .btn-slide { order: 3; width: min(15vw, 72px); height: min(15vw, 72px); margin-bottom: 0; font-size: 21px; }
+        body.portrait .btn-label { font-size: 13px; }
     </style>
 </head>
 <body>
@@ -75,12 +88,12 @@
 
     <div class="touch-ui">
         <div class="btn-top-bar">
-            <button class="small-btn btn-weapon-toggle" id="btn-weapon">換武器 (E)</button>
-            <button class="small-btn" id="btn-next">跳關 (N)</button>
-            <button class="small-btn" id="btn-reset">重玩 (R)</button>
+            <button class="small-btn btn-weapon-toggle" id="btn-weapon">換武器<span class="key-hint"> (E)</span></button>
+            <button class="small-btn" id="btn-next">跳關<span class="key-hint"> (N)</span></button>
+            <button class="small-btn" id="btn-reset">重玩<span class="key-hint"> (R)</span></button>
         </div>
 
-        <div class="btn-group d-pad">
+        <div class="btn-group d-pad" id="d-pad">
             <button class="v-btn btn-dir" id="btn-left">◀</button>
             <button class="v-btn btn-dir" id="btn-right">▶</button>
         </div>
@@ -97,6 +110,18 @@
 // ==========================================
 // 1. 核心參數與武器庫
 // ==========================================
+const H = 450;                                // 遊戲邏輯高度；寬度 VIEW_W 會依螢幕（橫放／直立）自動調整
+let VIEW_W = 800;
+const STEP_MS = 1000 / 60;                    // 固定每秒 60 次更新：120Hz 的手機也不會變兩倍快
+const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif';
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function fitText(ctx, text, x, y, maxW, size, color) {   // 文字太寬就自動縮小，直立的窄畫面才不會被切掉
+    let sz = size;
+    ctx.font = `bold ${sz}px ${FONT}`;
+    while (sz > 14 && ctx.measureText(text).width > maxW) { sz -= 2; ctx.font = `bold ${sz}px ${FONT}`; }
+    ctx.fillStyle = color; ctx.fillText(text, x, y);
+}
+
 const CONFIG = {
     GRAVITY: 0.55, PLAYER_SPEED: 4.2, JUMP_FORCE: -11.5, MIN_JUMP_FORCE: -4.0,
     SLIDE_SPEED: 7.2, SLIDE_DURATION: 24, KNOCKBACK_X: 3.5, KNOCKBACK_Y: -4.0,
@@ -127,32 +152,66 @@ function speak(text, pitch = 1.6, rate = 1.15) {
 class InputHandler {
     constructor() {
         this.keys = {};
-        window.addEventListener('keydown', (e) => { this.keys[e.code] = true; });
-        window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
+        const GAME_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space']);
+        window.addEventListener('keydown', (e) => { this.keys[e.code] = true; if (GAME_KEYS.has(e.code)) e.preventDefault(); });
+        window.addEventListener('keyup', (e) => { this.keys[e.code] = false; if (GAME_KEYS.has(e.code)) e.preventDefault(); });
+        window.addEventListener('blur', () => { this.keys = {}; });
 
-        this.bindTouch('btn-left', 'KeyA');
-        this.bindTouch('btn-right', 'KeyD');
-        this.bindTouch('btn-jump', 'KeyK');
-        this.bindTouch('btn-shoot', 'KeyJ');
-        this.bindTouch('btn-slide', 'KeyL');
-        this.bindTouch('btn-reset', 'KeyR');
-        this.bindTouch('btn-next', 'KeyN');
-        this.bindTouch('btn-weapon', 'KeyE');
+        this.bindPad('d-pad', [['btn-left', 'KeyA'], ['btn-right', 'KeyD']]);
+        this.bindHold('btn-jump', 'KeyK');
+        this.bindHold('btn-shoot', 'KeyJ');
+        this.bindHold('btn-slide', 'KeyL');
     }
-    bindTouch(id, code) {
+    // 十字鍵：依手指橫向位置判斷左／右，手指不放開直接滑到另一邊也會跟著換方向
+    bindPad(id, items) {
+        const box = document.getElementById(id);
+        if (!box) return;
+        const els = items.map(([bid, code]) => ({ el: document.getElementById(bid), code }));
+        const held = new Map();
+        const refresh = () => {
+            const codes = [...held.values()];
+            for (const it of els) { const on = codes.includes(it.code); this.keys[it.code] = on; it.el.classList.toggle('active', on); }
+        };
+        const pick = (e) => {
+            let best = null, bd = Infinity;
+            for (const it of els) {
+                const r = it.el.getBoundingClientRect(), d = Math.abs(e.clientX - (r.left + r.right) / 2);
+                if (d < bd) { bd = d; best = it.code; }
+            }
+            return best;
+        };
+        box.addEventListener('pointerdown', (e) => { e.preventDefault(); try { box.setPointerCapture(e.pointerId); } catch (err) {} held.set(e.pointerId, pick(e)); refresh(); });
+        box.addEventListener('pointermove', (e) => { if (held.has(e.pointerId)) { held.set(e.pointerId, pick(e)); refresh(); } });
+        const up = (e) => { held.delete(e.pointerId); refresh(); };
+        box.addEventListener('pointerup', up);
+        box.addEventListener('pointercancel', up);
+        box.addEventListener('lostpointercapture', up);
+    }
+    // 按住型按鈕（跳／攻擊／滑）：可多指同時按
+    bindHold(id, code) {
         const btn = document.getElementById(id);
         if (!btn) return;
-        const start = (e) => { e.preventDefault(); this.keys[code] = true; btn.classList.add('active'); };
-        const end = (e) => {
-            e.preventDefault(); this.keys[code] = false; btn.classList.remove('active');
-            if (id === 'btn-shoot') btn.classList.remove('charging');
+        const held = new Set();
+        const set = () => {
+            const on = held.size > 0;
+            this.keys[code] = on; btn.classList.toggle('active', on);
+            if (!on && id === 'btn-shoot') btn.classList.remove('charging');
         };
-        btn.addEventListener('touchstart', start, { passive: false });
-        btn.addEventListener('touchend', end, { passive: false });
-        btn.addEventListener('touchcancel', end, { passive: false });
-        btn.addEventListener('mousedown', start);
-        btn.addEventListener('mouseup', end);
-        btn.addEventListener('mouseleave', end);
+        btn.addEventListener('pointerdown', (e) => { e.preventDefault(); try { btn.setPointerCapture(e.pointerId); } catch (err) {} held.add(e.pointerId); set(); });
+        const up = (e) => { held.delete(e.pointerId); set(); };
+        btn.addEventListener('pointerup', up);
+        btn.addEventListener('pointercancel', up);
+        btn.addEventListener('lostpointercapture', up);
+    }
+    // 點一下型按鈕（換武器／跳關／重玩）：觸控與滑鼠都只觸發一次
+    bindTap(id, fn) {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.addEventListener('pointerdown', (e) => { e.preventDefault(); btn.classList.add('active'); fn(); });
+        const up = () => btn.classList.remove('active');
+        btn.addEventListener('pointerup', up);
+        btn.addEventListener('pointercancel', up);
+        btn.addEventListener('pointerleave', up);
     }
     isDown(codes) { return codes.some(c => this.keys[c]); }
 }
@@ -409,10 +468,10 @@ class Player {
 
         const left = input.isDown(['KeyA', 'ArrowLeft']);
         const right = input.isDown(['KeyD', 'ArrowRight']);
-        const jump = input.isDown(['KeyK']);
+        const jump = input.isDown(['KeyK', 'Space', 'ArrowUp', 'KeyW']);
         const down = input.isDown(['KeyS', 'ArrowDown']);
-        const slide = input.isDown(['KeyL']) || (down && jump);
-        const shoot = input.isDown(['KeyJ']);
+        const slide = input.isDown(['KeyL', 'KeyX']) || (down && jump);
+        const shoot = input.isDown(['KeyJ', 'KeyZ']);
 
         const shootBtn = document.getElementById('btn-shoot');
         if (shootBtn) {
@@ -517,10 +576,12 @@ class Player {
             ctx.save();
             const floatY = (80 - this.speechTimer) * 0.35;
             const bx = cx; const by = this.y - 28 - floatY;
+            ctx.font = 'bold 20px -apple-system, "Microsoft JhengHei", sans-serif';
+            const tw = ctx.measureText(this.speechText).width + 26;
             ctx.fillStyle = '#FFF'; ctx.strokeStyle = '#FF5E97'; ctx.lineWidth = 2.5;
-            ctx.beginPath(); ctx.roundRect(bx - 50, by - 14, 100, 26, 12); ctx.fill(); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(bx - 4, by + 12); ctx.lineTo(bx, by + 18); ctx.lineTo(bx + 4, by + 12); ctx.fill(); ctx.stroke();
-            ctx.fillStyle = '#FF2E75'; ctx.font = 'bold 13px -apple-system, "Microsoft JhengHei", sans-serif';
+            ctx.beginPath(); ctx.roundRect(bx - tw / 2, by - 18, tw, 34, 14); ctx.fill(); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(bx - 5, by + 15); ctx.lineTo(bx, by + 23); ctx.lineTo(bx + 5, by + 15); ctx.fill(); ctx.stroke();
+            ctx.fillStyle = '#FF2E75';
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText(this.speechText, bx, by);
             ctx.restore();
@@ -668,6 +729,7 @@ class Game {
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
         this.input = new InputHandler();
+        this.scale = 1; this.acc = 0; this.lastTs = undefined; this.worldShift = 0;
 
         this.currentStage = 1;
         this.maxStage = 10;
@@ -676,10 +738,36 @@ class Game {
         this.allCleared = false;
 
         this.player = new Player(80, 200);
+        this.layout();
         this.loadStage(1);
         this.bindEvents();
         this.loop = this.loop.bind(this);
         requestAnimationFrame(this.loop);
+    }
+
+    // 依螢幕決定畫面大小：橫放＝鋪滿整個螢幕；直立＝畫面貼上緣、寬度鋪滿，下方留給操作按鈕
+    layout() {
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const portrait = vh > vw * 1.1;
+        document.body.classList.toggle('portrait', portrait);
+        let cw;
+        if (portrait) {
+            const availH = Math.max(220, vh - 250);
+            VIEW_W = clamp(Math.round(vw * H / availH), 440, 800);   // 視野最窄 440，角色才不會縮太小
+            cw = vw;
+        } else {
+            VIEW_W = clamp(Math.round(H * vw / vh), 640, 960);
+            cw = Math.min(vw, vh * VIEW_W / H);
+        }
+        // 橫放時按鈕壓在畫面下方，把世界往上提 50，角色才不會被十字鍵蓋住；直立時按鈕在畫面外，不用提
+        this.worldShift = portrait ? 0 : 50;
+        const ch = cw * H / VIEW_W;
+        this.canvas.style.width = cw + 'px';
+        this.canvas.style.height = ch + 'px';
+        this.scale = cw * Math.min(window.devicePixelRatio || 1, 2) / VIEW_W;     // 依螢幕像素密度放大，畫面不糊
+        this.canvas.width = Math.round(VIEW_W * this.scale);
+        this.canvas.height = Math.round(H * this.scale);
+        document.documentElement.style.setProperty('--canvas-bottom', ch + 'px');
     }
 
     loadStage(stg) {
@@ -695,12 +783,17 @@ class Game {
 
     bindEvents() {
         window.addEventListener('keydown', (e) => {
+            if (e.repeat) return;
             if (e.code === 'KeyR') this.loadStage(this.currentStage);
             if (e.code === 'KeyN') this.nextStage();
         });
-        document.getElementById('btn-reset').addEventListener('click', () => this.loadStage(this.currentStage));
-        document.getElementById('btn-next').addEventListener('click', () => this.nextStage());
-        document.getElementById('btn-weapon').addEventListener('click', () => this.player.cycleWeapon());
+        this.input.bindTap('btn-reset', () => this.loadStage(this.currentStage));
+        this.input.bindTap('btn-next', () => this.nextStage());
+        this.input.bindTap('btn-weapon', () => this.player.cycleWeapon());
+        window.addEventListener('resize', () => this.layout());
+        window.addEventListener('orientationchange', () => setTimeout(() => this.layout(), 250));
+        if (window.visualViewport) window.visualViewport.addEventListener('resize', () => this.layout());
+        document.addEventListener('contextmenu', (e) => e.preventDefault());
     }
 
     nextStage() {
@@ -723,15 +816,15 @@ class Game {
 
         this.player.update(this.input, this.level.platforms, this.bullets);
 
-        if (this.player.y > this.canvas.height + 80) this.player.reset(80, 200);
+        if (this.player.y > H + 80) this.player.reset(80, 200);
 
         if (checkAABB(this.player, this.level.goal)) {
             this.triggerStageClear();
         }
 
-        const targetCamX = this.player.x - this.canvas.width * 0.35;
+        const targetCamX = this.player.x - VIEW_W * 0.35;
         this.cameraX += (targetCamX - this.cameraX) * 0.1;
-        this.cameraX = Math.max(0, Math.min(this.cameraX, this.level.width - this.canvas.width));
+        this.cameraX = Math.max(0, Math.min(this.cameraX, this.level.width - VIEW_W));
 
         for (const b of this.bullets) {
             b.update(this.level.width, this.level.platforms);
@@ -772,24 +865,29 @@ class Game {
     }
 
     drawHUD() {
-        this.ctx.save();
+        const ctx = this.ctx;
+        ctx.save();
         const wp = WEAPON_TYPES[this.player.currentWeapon];
-        this.ctx.fillStyle = '#FFF';
-        this.ctx.font = 'bold 15px -apple-system, "Microsoft JhengHei", sans-serif';
-        this.ctx.fillText(`STAGE ${this.currentStage}/${this.maxStage} : ${this.level.name}`, 60, 32);
+        ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.lineJoin = 'round';
+        const line = (text, y, color, size) => {                 // 字放大＋黑色描邊，老花眼也看得清楚
+            ctx.font = `bold ${size}px ${FONT}`;
+            ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+            ctx.strokeText(text, 62, y);
+            ctx.fillStyle = color; ctx.fillText(text, 62, y);
+        };
+        line(`STAGE ${this.currentStage}/${this.maxStage}`, 34, '#FFF', 24);
+        line(this.level.name, 62, '#FFE66D', 22);
+        line(`${wp.icon} ${wp.name.split(' ')[0]}`, 90, wp.dress, 22);
 
-        this.ctx.fillStyle = wp.dress;
-        this.ctx.fillText(`武器：${wp.icon} ${wp.name}`, 60, 52);
-
-        const barX = 25, barY = 20, uw = 14, uh = 4, sp = 1.5;
-        this.ctx.fillStyle = '#000';
-        this.ctx.fillRect(barX - 2, barY - 2, uw + 4, (uh + sp) * this.player.maxHp + 4);
+        const barX = 25, barY = 20, uw = 20, uh = 4, sp = 1.5;
+        ctx.fillStyle = '#000';
+        ctx.fillRect(barX - 3, barY - 3, uw + 6, (uh + sp) * this.player.maxHp + 6);
         for (let i = 0; i < this.player.maxHp; i++) {
             const cy = barY + (this.player.maxHp - 1 - i) * (uh + sp);
-            this.ctx.fillStyle = i < this.player.hp ? (this.player.hp <= 6 ? '#FF4757' : wp.dress) : '#333';
-            this.ctx.fillRect(barX, cy, uw, uh);
+            ctx.fillStyle = i < this.player.hp ? (this.player.hp <= 6 ? '#FF4757' : wp.dress) : '#333';
+            ctx.fillRect(barX, cy, uw, uh);
         }
-        this.ctx.restore(); // 已修復為 this.ctx.restore()
+        ctx.restore();
     }
 
     drawGoalGate() {
@@ -808,72 +906,73 @@ class Game {
     }
 
     draw() {
-        const theme = this.level.theme;
-        this.ctx.fillStyle = theme.bg;
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        const ctx = this.ctx, theme = this.level.theme;
+        ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
+        ctx.fillStyle = theme.bg;
+        ctx.fillRect(0, 0, VIEW_W, H);
 
-        this.ctx.save();
+        ctx.save();
+        ctx.translate(0, -this.worldShift);
         for (const p of this.level.platforms) {
             const rx = p.x - this.cameraX;
-            if (rx + p.width < 0 || rx > this.canvas.width) continue;
-            this.ctx.fillStyle = theme.plat;
-            this.ctx.fillRect(rx, p.y, p.width, p.height);
-            this.ctx.strokeStyle = theme.border; this.ctx.lineWidth = 2;
-            this.ctx.strokeRect(rx, p.y, p.width, p.height);
+            if (rx + p.width < 0 || rx > VIEW_W) continue;
+            const ph = p.y >= 380 ? p.height + this.worldShift : p.height;   // 地面往下補滿，不會露出空白
+            ctx.fillStyle = theme.plat;
+            ctx.fillRect(rx, p.y, p.width, ph);
+            ctx.strokeStyle = theme.border; ctx.lineWidth = 2;
+            ctx.strokeRect(rx, p.y, p.width, ph);
         }
-        this.ctx.restore();
 
         this.drawGoalGate();
-        for (const e of this.level.enemies) e.draw(this.ctx, this.cameraX);
-        for (const b of this.bullets) b.draw(this.ctx, this.cameraX);
-        this.player.draw(this.ctx, this.cameraX);
+        for (const e of this.level.enemies) e.draw(ctx, this.cameraX);
+        for (const b of this.bullets) b.draw(ctx, this.cameraX);
+        this.player.draw(ctx, this.cameraX);
+        ctx.restore();
         this.drawHUD();
 
         if (this.stageClearAnim > 0) {
-            this.ctx.save();
-            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-            this.ctx.textAlign = 'center';
-
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, VIEW_W, H);
+            ctx.textAlign = 'center';
+            const maxW = VIEW_W - 30;
             if (this.newWeaponUnlocked) {
-                this.ctx.fillStyle = '#FFD166';
-                this.ctx.font = 'bold 36px -apple-system, "Microsoft JhengHei", sans-serif';
-                this.ctx.fillText('🎉 YOU GOT A NEW WEAPON! 🎉', this.canvas.width / 2, this.canvas.height / 2 - 20);
-                this.ctx.fillStyle = '#00F2FE';
-                this.ctx.font = 'bold 24px -apple-system, "Microsoft JhengHei", sans-serif';
-                this.ctx.fillText(`【${this.newWeaponUnlocked}】`, this.canvas.width / 2, this.canvas.height / 2 + 25);
+                fitText(ctx, '🎉 YOU GOT A NEW WEAPON! 🎉', VIEW_W / 2, H / 2 - 20, maxW, 36, '#FFD166');
+                fitText(ctx, `【${this.newWeaponUnlocked}】`, VIEW_W / 2, H / 2 + 28, maxW, 26, '#00F2FE');
             } else {
-                this.ctx.fillStyle = '#FFE66D';
-                this.ctx.font = 'bold 36px -apple-system, "Microsoft JhengHei", sans-serif';
-                this.ctx.fillText('✨ STAGE CLEAR! ✨', this.canvas.width / 2, this.canvas.height / 2 - 10);
+                fitText(ctx, '✨ STAGE CLEAR! ✨', VIEW_W / 2, H / 2 - 10, maxW, 36, '#FFE66D');
             }
-            this.ctx.restore();
+            ctx.restore();
         }
 
         if (this.allCleared) {
-            this.ctx.save();
-            this.ctx.fillStyle = 'rgba(15, 10, 25, 0.9)';
-            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-            this.ctx.fillStyle = '#FF5E97';
-            this.ctx.font = 'bold 42px -apple-system, "Microsoft JhengHei", sans-serif';
-            this.ctx.textAlign = 'center';
-            this.ctx.fillText('🏆 全部十關大通關！ 🏆', this.canvas.width / 2, this.canvas.height / 2 - 25);
-            this.ctx.fillStyle = '#FFE66D';
-            this.ctx.font = 'bold 26px -apple-system, "Microsoft JhengHei", sans-serif';
-            this.ctx.fillText('「爸爸太帥了！最愛爸爸！」💖', this.canvas.width / 2, this.canvas.height / 2 + 25);
-            this.ctx.restore();
+            ctx.save();
+            ctx.fillStyle = 'rgba(15, 10, 25, 0.9)';
+            ctx.fillRect(0, 0, VIEW_W, H);
+            ctx.textAlign = 'center';
+            const maxW = VIEW_W - 30;
+            fitText(ctx, '🏆 全部十關大通關！ 🏆', VIEW_W / 2, H / 2 - 25, maxW, 42, '#FF5E97');
+            fitText(ctx, '「爸爸太帥了！最愛爸爸！」💖', VIEW_W / 2, H / 2 + 28, maxW, 28, '#FFE66D');
+            ctx.restore();
         }
     }
 
-    loop() {
-        this.update();
-        this.draw();
+    // 固定 60 步／秒：畫面更新率不同（60/90/120/144Hz）遊戲速度都一樣
+    loop(ts) {
         requestAnimationFrame(this.loop);
+        if (this.lastTs === undefined) this.lastTs = ts;
+        const dt = Math.min(ts - this.lastTs, 100);
+        this.lastTs = ts;
+        this.acc += dt;
+        let n = 0;
+        while (this.acc >= STEP_MS - 1 && n < 5) { this.update(); this.acc -= STEP_MS; n++; }
+        if (n === 5) this.acc = 0;
+        this.draw();
     }
 }
 
 window.onload = () => {
-    new Game();
+    window.game = new Game();
 };
 </script>
 </body>
