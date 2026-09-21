@@ -144,6 +144,12 @@
             text-shadow: 0 3px 0 #ff5e97, 0 6px 14px #000; animation: tapPulse 0.9s infinite alternate;
         }
         @keyframes tapPulse { from { opacity: 0.5; transform: scale(0.96); } to { opacity: 1; transform: scale(1.06); } }
+        .mid-btn {
+            font-family: inherit; font-size: clamp(18px, 3.2vw, 22px); font-weight: 800; color: #fff; padding: 8px 22px;
+            border-radius: 30px; border: 2px solid rgba(255, 255, 255, 0.6); background: rgba(0, 0, 0, 0.45);
+        }
+        .mid-btn:active { background: rgba(255, 107, 139, 0.7); }
+        body:not(.portrait):not(.rot) #btn-land, body:not(.portrait):not(.rot) .mid-btn { display: none; }
     </style>
 </head>
 <body>
@@ -159,6 +165,7 @@
             <button class="small-btn btn-weapon-toggle" id="btn-weapon">換武器<span class="key-hint"> (E)</span></button>
             <button class="small-btn" id="btn-next">跳關<span class="key-hint"> (N)</span></button>
             <button class="small-btn" id="btn-reset">重玩<span class="key-hint"> (R)</span></button>
+            <button class="small-btn" id="btn-land" aria-label="橫向模式">📱↻</button>
         </div>
 
         <div class="btn-group d-pad" id="d-pad">
@@ -188,8 +195,9 @@
         <div class="title-lyric" id="lyric">♪ 爸爸好帥～～ ♪</div>
         <button class="big-btn" id="btn-start">▶ 開始遊戲</button>
         <button class="big-btn secondary hidden" id="btn-continue">⏩ 繼續遊戲</button>
-        <div class="title-tip">遊戲中對手機說「爸爸好帥」<br>就會變身超級Q妹，怪物也會大量出現！</div>
-        <div class="title-keys kbd-only">電腦操作：← → 移動　K／空白鍵 跳　J／Z 攻擊（按住蓄力）<br>L／X 滑行　E 換武器　V 說話變身　P 暫停</div>
+        <button class="mid-btn" id="btn-land2">📱 手機轉橫向模式</button>
+        <div class="title-tip">遊戲中對手機說「爸爸好帥」<br>變身超級Q妹（還能飛！），怪物也會大量出現！</div>
+        <div class="title-keys kbd-only">電腦操作：← → 移動　K／空白鍵 跳（空中再按＝二段跳）　J／Z 攻擊（按住集氣）<br>L／X 滑行　E 換武器　V 說話變身　P 暫停</div>
     </div>
 
     <div class="screen hidden" id="screen-win" style="justify-content:flex-start; padding-top:14vh;">
@@ -204,6 +212,7 @@
         <button class="big-btn" id="btn-resume">▶ 繼續</button>
         <button class="big-btn secondary" id="btn-restart">↺ 重玩本關</button>
         <button class="big-btn secondary" id="btn-home">🏠 回標題</button>
+        <button class="mid-btn" id="btn-land3">📱 橫向模式</button>
     </div>
 </div>
 
@@ -394,12 +403,19 @@ function composeTrack(def) {
     return song;
 }
 
-const SFX_GAP = { shoot: 45, hit: 35, kill: 40, land: 90, slide: 150, pickup: 60, weak: 60 };
+const SFX_GAP = { shoot: 45, hit: 35, kill: 40, land: 90, slide: 150, pickup: 60, weak: 60, jump2: 80 };
+// 集氣音效：一個持續的聲音，音高隨集氣進度往上爬，集滿時更響、顫音加快（每種武器音色不同）
+const CHARGE_SND = {
+    NORMAL: { t1: 'sine', t2: 'triangle', f0: 260, oct: 2.2, trem: 8, ratio: 1.5 },
+    FIRE: { t1: 'sawtooth', t2: 'square', f0: 90, oct: 2.4, trem: 13, ratio: 1.5 },
+    ICE: { t1: 'triangle', t2: 'sine', f0: 700, oct: 1.5, trem: 5, ratio: 1.5 },
+    THUNDER: { t1: 'square', t2: 'sawtooth', f0: 160, oct: 2.4, trem: 26, ratio: 1.01 }
+};
 
 class AudioEngine {
     constructor() {
         this.ctx = null; this.muted = !!Store.get('muted', false);
-        this.songs = {}; this.cur = null; this.timer = null; this.wanted = null; this.lastSfx = {};
+        this.songs = {}; this.cur = null; this.timer = null; this.wanted = null; this.lastSfx = {}; this.chg = null;
     }
     _init(ctx) {                               // 建立音訊處理鏈（也讓測試可以換成離線 context）
         this.ctx = ctx;
@@ -427,10 +443,10 @@ class AudioEngine {
         if (this.ctx.state === 'suspended') { const p = this.ctx.resume(); if (p && p.catch) p.catch(() => {}); }
         if (this.wanted && !this.cur) this.playMusic(this.wanted);
     }
-    suspend() { if (this.ctx && this.ctx.state === 'running') { const p = this.ctx.suspend(); if (p && p.catch) p.catch(() => {}); } }
+    suspend() { this.chargeStop(); if (this.ctx && this.ctx.state === 'running') { const p = this.ctx.suspend(); if (p && p.catch) p.catch(() => {}); } }
     resume() { if (this.ctx && this.ctx.state === 'suspended') { const p = this.ctx.resume(); if (p && p.catch) p.catch(() => {}); } }
     setMuted(m) {
-        this.muted = m; Store.set('muted', m);
+        this.muted = m; Store.set('muted', m); if (m) this.chargeStop();
         if (this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.9, this.ctx.currentTime, 0.03);
     }
     duck(sec) {                                // 說話／唱歌時把音樂壓低，講完再慢慢回來
@@ -523,6 +539,32 @@ class AudioEngine {
     }
     _noise(o) { this._noiseAt(this.sfxBus, this.ctx.currentTime + (o.delay || 0), o.dur, o.vol, o.type || 'bandpass', o.f0, o.f1, o.q); }
 
+    chargeUpdate(frames, weapon, lv2T) {            // 每步呼叫：第一次建立聲音，之後只調整音高與音量
+        if (!this.ctx || this.muted || this.ctx.state !== 'running') return;
+        const c = this.ctx, t = c.currentTime, P = CHARGE_SND[weapon] || CHARGE_SND.NORMAL, prog = Math.min(1, frames / lv2T), full = prog >= 1;
+        if (!this.chg) {
+            const g = c.createGain(), o1 = c.createOscillator(), o2 = c.createOscillator(), g2 = c.createGain(), lfo = c.createOscillator(), lg = c.createGain();
+            o1.type = P.t1; o2.type = P.t2;
+            g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.07, t + 0.06);
+            g2.gain.value = 0.5; lfo.frequency.value = P.trem; lg.gain.value = 0.025;
+            lfo.connect(lg); lg.connect(g.gain); o1.connect(g); o2.connect(g2); g2.connect(g); g.connect(this.sfxBus);
+            o1.start(t); o2.start(t); lfo.start(t);
+            this.chg = { o1, o2, g, lfo };
+        }
+        const k = this.chg, f = P.f0 * Math.pow(2, prog * P.oct);
+        k.o1.frequency.setTargetAtTime(f, t, 0.04); k.o2.frequency.setTargetAtTime(f * P.ratio, t, 0.04);
+        k.lfo.frequency.setTargetAtTime(P.trem * (full ? 2.2 : 1 + prog), t, 0.05);
+        k.g.gain.setTargetAtTime(full ? 0.11 : 0.05 + prog * 0.05, t, 0.05);
+    }
+    chargeStop() {                                  // 放開、受傷、換武器、暫停都要關掉，不然會一直響
+        const k = this.chg; if (!k) return;
+        this.chg = null;
+        try {
+            const t = this.ctx.currentTime;
+            k.g.gain.cancelScheduledValues(t); k.g.gain.setTargetAtTime(0.0001, t, 0.02);
+            k.o1.stop(t + 0.12); k.o2.stop(t + 0.12); k.lfo.stop(t + 0.12);
+        } catch (e) { /* 已經停了 */ }
+    }
     sfx(name) {
         if (!this.ctx || this.muted || this.ctx.state !== 'running') return;
         const now = performance.now();
@@ -531,6 +573,9 @@ class AudioEngine {
         const T = (o) => this._tone(o), N = (o) => this._noise(o);
         switch (name) {
             case 'jump': T({ wave: 'p50', f0: 300, f1: 720, dur: 0.15, vol: 0.13 }); break;
+            case 'jump2': T({ wave: 'p25', f0: 520, f1: 1150, dur: 0.14, vol: 0.13 }); N({ dur: 0.08, vol: 0.05, type: 'highpass', f0: 4200 }); break;
+            case 'checkpoint': T({ wave: 'p50', f0: 660, dur: 0.08, vol: 0.11 }); T({ wave: 'p50', f0: 880, dur: 0.08, vol: 0.11, delay: 0.08 }); T({ wave: 'p50', f0: 1320, dur: 0.16, vol: 0.11, delay: 0.16 }); break;
+            case 'tank': T({ wave: 'p50', f0: 440, dur: 0.1, vol: 0.13 }); T({ wave: 'p50', f0: 660, dur: 0.1, vol: 0.13, delay: 0.1 }); T({ wave: 'p50', f0: 990, dur: 0.1, vol: 0.13, delay: 0.2 }); T({ wave: 'p50', f0: 1320, dur: 0.3, vol: 0.13, delay: 0.3 }); break;
             case 'land': N({ dur: 0.06, vol: 0.12, type: 'lowpass', f0: 500 }); break;
             case 'slide': N({ dur: 0.22, vol: 0.09, f0: 900, f1: 350 }); break;
             case 'shoot': T({ wave: 'p25', f0: 950, f1: 320, dur: 0.09, vol: 0.12 }); break;
@@ -608,7 +653,7 @@ class InputHandler {
         const pick = (e) => {
             let best = null, bd = Infinity;
             for (const it of els) {
-                const r = it.el.getBoundingClientRect(), d = Math.abs(e.clientX - (r.left + r.right) / 2);
+                const r = it.el.getBoundingClientRect(), d = Math.hypot(e.clientX - (r.left + r.right) / 2, e.clientY - (r.top + r.bottom) / 2);
                 if (d < bd) { bd = d; best = it.code; }
             }
             return best;
@@ -660,6 +705,13 @@ class FX {
             const sp = (o.speed || 3) * (0.4 + Math.random() * 0.9), life = (o.life || 30) * (0.6 + Math.random() * 0.6);
             const col = Array.isArray(o.color) ? o.color[(Math.random() * o.color.length) | 0] : (o.color || '#fff');
             this.p.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, g: o.g === undefined ? 0.12 : o.g, life, max: life, size: (o.size || 3) * (0.6 + Math.random() * 0.8), color: col, shape: o.shape || 'sq' });
+        }
+    }
+    pull(x, y, n, color, r = 46) {                  // 粒子從四周吸向角色（集氣特效）
+        for (let i = 0; i < n; i++) {
+            if (this.p.length > 240) this.p.shift();
+            const a = Math.random() * Math.PI * 2, life = 16;
+            this.p.push({ x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, vx: -Math.cos(a) * r / life, vy: -Math.sin(a) * r / life, g: 0, life, max: life, size: 3.2, color, shape: 'ci' });
         }
     }
     text(x, y, str, color = '#fff', size = 22) {
@@ -1295,8 +1347,14 @@ class Player {
         this.startX = x; this.startY = y;
         this.currentWeapon = 'NORMAL';
         this.unlockedWeapons = ['NORMAL'];
+        this.equip = new Set(); this.tanks = 0; this.collected = new Set();   // 裝備、能量罐、已撿過的膠囊（換關不重置）
         this.reset();
     }
+    get hasSet() { return this.equip.size >= 4; }
+    get lv1T() { return this.equip.has('GLOVES') ? 25 : CONFIG.CHARGE_LV1_TIME; }
+    get lv2T() { return this.equip.has('GLOVES') ? 56 : CONFIG.CHARGE_LV2_TIME; }
+    calcMaxHp() { return 28 + (this.equip.has('HELMET') ? 4 : 0) + (this.hasSet ? 4 : 0); }
+    applyEquip() { const old = this.maxHp; this.maxHp = this.calcMaxHp(); this.hp = Math.min(this.maxHp, this.hp + Math.max(0, this.maxHp - old)); }
     reset(x = this.startX, y = this.startY) {
         this.x = x; this.y = y;
         this.normalWidth = 34; this.normalHeight = 48; this.slideHeight = 24;
@@ -1304,12 +1362,13 @@ class Player {
         this.vx = 0; this.vy = 0; this.facing = 1;
         this.isGrounded = false; this.isSliding = false; this.slideTimer = 0;
         this.isKnockedBack = false;
-        this.maxHp = 28; this.hp = this.maxHp;
+        this.maxHp = this.calcMaxHp(); this.hp = this.maxHp;
         this.invincibleFrames = 0; this.chargeFrames = 0; this.shotCd = 0;
         this.shootKeyPrev = false; this.weaponKeyPrev = false;
         this.walkTimer = 0; this.speechTimer = 0; this.speechText = '';
-        this.coyote = 0; this.jumpBuf = 0; this.jumpPrev = false; this.groundPlat = null; this.lastSafe = { x, y };
-        this.superTimer = 0;
+        this.coyote = 0; this.jumpBuf = 0; this.jumpPrev = false; this.airJumps = 0; this.groundPlat = null; this.lastSafe = { x, y };
+        this.superTimer = 0; this.superTotal = SUPER_TIME;
+        this.animT = 0; this.landT = 0; this.spinT = 0; this.shotT = 0; this.hurtT = 0; this.cheer = false;
     }
     say(text, frames = 90) { this.speechText = text; this.speechTimer = frames; }
     praise() { const s = PRAISE[(Math.random() * PRAISE.length) | 0]; this.say(s); speak(s, 1.7, 1.1); }   // 大招放完誇爸爸
@@ -1325,10 +1384,11 @@ class Player {
     }
     takeDamage(dmg, knockbackDir) {
         if (this.invincibleFrames > 0 || this.superTimer > 0) return false;
+        if (this.equip.has('ARMOR')) dmg = Math.max(1, dmg - 1);
         this.hp = Math.max(0, this.hp - dmg);
-        this.invincibleFrames = CONFIG.INVINCIBLE_TIME;
+        this.invincibleFrames = CONFIG.INVINCIBLE_TIME + (this.equip.has('HELMET') ? 30 : 0);
         this.isKnockedBack = true; this.slideTimer = 0;      // 滑行中被打到：等站得起來再站起，避免碰撞箱卡在滑行高度
-        this.chargeFrames = 0;
+        this.chargeFrames = 0; this.hurtT = 34;
         this.vx = knockbackDir * CONFIG.KNOCKBACK_X; this.vy = CONFIG.KNOCKBACK_Y;
         audio.sfx('hurt');
         return true;
@@ -1348,6 +1408,7 @@ class Player {
         if (t === 'THUNDER') { if (lv === 2) mk(); else (lv === 1 ? [-4, -2, 0, 2, 4] : [-2.2, 0, 2.2]).forEach(mk); }
         else if (t === 'ICE' && lv === 2) [-2.5, 0, 2.5].forEach(mk);
         else mk();
+        this.shotT = 9;
         audio.sfx(t === 'NORMAL' ? (lv === 2 ? 'shoot2' : lv === 1 ? 'shoot1' : 'shoot') : t.toLowerCase());
         if (lv === 2) {                                        // 大招：震動、爆光、誇爸爸
             g.shake = Math.max(g.shake, 7);
@@ -1359,11 +1420,13 @@ class Player {
     fireSuper(g) {
         const bx = this.facing === 1 ? this.x + this.width + 6 : this.x - 6, by = this.y + (this.isSliding ? 12 : 24);
         for (const vy of [-1.6, 0, 1.6]) g.bullets.push(new Bullet(bx, by, this.facing, 'SUPER', 0, vy));
-        audio.sfx('shoot');
+        this.shotT = 7; audio.sfx('shoot');
     }
 
     update(g) {
-        const input = g.input, platforms = g.level.platforms;
+        const input = g.input, platforms = g.level.platforms, fx = g.fx;
+        this.animT++;
+        if (this.landT > 0) this.landT--; if (this.spinT > 0) this.spinT--; if (this.shotT > 0) this.shotT--; if (this.hurtT > 0) this.hurtT--;
         if (this.invincibleFrames > 0) { this.invincibleFrames--; if (this.invincibleFrames === 0) this.isKnockedBack = false; }
         if (this.speechTimer > 0) this.speechTimer--;
         const sup = this.superTimer > 0;
@@ -1375,11 +1438,11 @@ class Player {
 
         const left = input.isDown(['KeyA', 'ArrowLeft']), right = input.isDown(['KeyD', 'ArrowRight']);
         const jump = input.isDown(['KeyK', 'Space', 'ArrowUp', 'KeyW']), down = input.isDown(['KeyS', 'ArrowDown']);
-        const slide = input.isDown(['KeyL', 'KeyX']) || (down && jump), shoot = input.isDown(['KeyJ', 'KeyZ']);
-        if (g.shootBtn) g.shootBtn.classList.toggle('charging', this.chargeFrames >= CONFIG.CHARGE_LV2_TIME);
+        const slideKey = input.isDown(['KeyL', 'KeyX']), slide = !sup && (slideKey || (down && jump)), shoot = input.isDown(['KeyJ', 'KeyZ']);
+        if (g.shootBtn) g.shootBtn.classList.toggle('charging', this.chargeFrames >= this.lv2T);
 
-        // 跳躍容錯：離開地面後 6 幀內還能跳（土狼時間）、落地前 6 幀按跳會記住（緩衝）
-        if (this.isGrounded) this.coyote = CONFIG.COYOTE; else if (this.coyote > 0) this.coyote--;
+        // 跳躍容錯：離開地面後 6 幀內還能跳（土狼時間）、落地前 6 幀按跳會記住（緩衝）；空中還可以再跳一次（二段跳）
+        if (this.isGrounded) { this.coyote = CONFIG.COYOTE; this.airJumps = 0; } else if (this.coyote > 0) this.coyote--;
         if (jump && !this.jumpPrev) this.jumpBuf = CONFIG.JUMP_BUFFER; else if (this.jumpBuf > 0) this.jumpBuf--;
         this.jumpPrev = jump;
 
@@ -1391,40 +1454,57 @@ class Player {
                 audio.sfx('slide');
             }
             if (this.isSliding) {
-                this.vx = this.facing * CONFIG.SLIDE_SPEED * (sup ? 1.15 : 1);
+                this.vx = this.facing * CONFIG.SLIDE_SPEED;
                 this.slideTimer--;
+                if (this.animT % 3 === 0) fx.burst(this.x + this.width / 2 - this.facing * 12, this.y + this.height - 2, 1, { color: '#ffffffaa', speed: 1.2, life: 14, size: 3.5, g: -0.02, angle: -Math.PI / 2, spread: 1.2 });
                 if (this.slideTimer <= 0) this.tryStandUp(platforms);
             } else {
-                const spd = CONFIG.PLAYER_SPEED * (sup ? 1.25 : 1);
+                const spd = CONFIG.PLAYER_SPEED * (this.equip.has('BOOTS') ? 1.15 : 1) * (sup ? 1.25 : 1);
                 if (left && !right) { this.vx = -spd; this.facing = -1; this.walkTimer++; }
                 else if (right && !left) { this.vx = spd; this.facing = 1; this.walkTimer++; }
                 else { this.vx = 0; this.walkTimer = 0; }
-                if (this.jumpBuf > 0 && this.coyote > 0 && !down) {
-                    this.vy = CONFIG.JUMP_FORCE; this.isGrounded = false; this.coyote = 0; this.jumpBuf = 0; audio.sfx('jump');
+                if (sup) {                                     // 超級模式＝飛行：按住「跳」往上、按住「滑／下」往下衝、都不按就懸停
+                    const tvy = jump ? -4.6 : (down || slideKey) ? 5 : 0.5;
+                    this.vy += (tvy - this.vy) * 0.16; this.jumpBuf = 0;
+                    if (this.animT % 3 === 0) fx.burst(this.x + this.width / 2 - this.facing * 10, this.y + this.height * 0.6, 1, { color: ['#FFD400', '#FFF6B0'], speed: 1.3, life: 16, size: 4, g: 0, shape: 'ci', angle: this.facing > 0 ? Math.PI : 0, spread: 0.8 });
+                } else if (this.jumpBuf > 0 && !down) {
+                    const boots = this.equip.has('BOOTS');
+                    if (this.coyote > 0) {
+                        this.vy = CONFIG.JUMP_FORCE * (boots ? 1.04 : 1); this.isGrounded = false; this.coyote = 0; this.jumpBuf = 0; audio.sfx('jump');
+                    } else if (this.airJumps < 1) {            // 二段跳：空中再按一次，翻個跟斗
+                        this.vy = CONFIG.JUMP_FORCE * (boots ? 0.97 : 0.88); this.airJumps++; this.jumpBuf = 0; this.spinT = 22; audio.sfx('jump2');
+                        fx.burst(this.x + this.width / 2, this.y + this.height - 4, 10, { color: ['#FFFFFF', '#A5F3FC'], speed: 2.6, life: 16, size: 3, g: 0, shape: 'ci', angle: Math.PI / 2, spread: Math.PI * 0.9 });
+                    }
                 }
             }
-            if (!jump && this.vy < CONFIG.MIN_JUMP_FORCE) this.vy = CONFIG.MIN_JUMP_FORCE;
+            if (!sup && !jump && this.vy < CONFIG.MIN_JUMP_FORCE) this.vy = CONFIG.MIN_JUMP_FORCE;
         }
 
-        // 射擊：按住集氣、放開發射；四種武器都有 0/1/2 段（2＝大招）。超級模式改成按住自動連射
+        // 射擊：按住集氣（有持續上升的集氣音效與能量聚集特效）、放開發射；四種武器都有 0/1/2 段（2＝大招）。超級模式改成按住自動連射
         if (this.shotCd > 0) this.shotCd--;
         if (sup) {
             this.chargeFrames = 0;
             if (shoot && this.shotCd <= 0) { this.fireSuper(g); this.shotCd = 6; }
         } else if (shoot) {
             this.chargeFrames++;
-            if (this.chargeFrames === CONFIG.CHARGE_LV1_TIME) audio.sfx('charge1');
-            if (this.chargeFrames === CONFIG.CHARGE_LV2_TIME) audio.sfx('charge2');
+            const lv2 = this.chargeFrames >= this.lv2T;
+            if (this.chargeFrames === this.lv1T) audio.sfx('charge1');
+            if (this.chargeFrames === this.lv2T) { audio.sfx('charge2'); fx.burst(this.x + this.width / 2, this.y + this.height / 2, 12, { color: CHARGE_COLORS[this.currentWeapon][1], speed: 3, life: 18, size: 3, g: 0, shape: 'ci' }); }
+            if (this.chargeFrames >= 10) {
+                audio.chargeUpdate(this.chargeFrames, this.currentWeapon, this.lv2T);
+                if (this.chargeFrames % 3 === 0) fx.pull(this.x + this.width / 2, this.y + this.height / 2, lv2 ? 2 : 1, CHARGE_COLORS[this.currentWeapon][lv2 ? 1 : 0]);
+            }
         } else {
             if (this.shootKeyPrev && this.shotCd <= 0) {
-                this.fire(g, this.chargeFrames >= CONFIG.CHARGE_LV2_TIME ? 2 : this.chargeFrames >= CONFIG.CHARGE_LV1_TIME ? 1 : 0);
+                this.fire(g, this.chargeFrames >= this.lv2T ? 2 : this.chargeFrames >= this.lv1T ? 1 : 0);
                 this.shotCd = CONFIG.SHOT_COOLDOWN;
             }
             this.chargeFrames = 0;
         }
+        if (this.chargeFrames < 10 && audio.chg) audio.chargeStop();
         this.shootKeyPrev = shoot;
 
-        this.vy += CONFIG.GRAVITY;
+        if (!sup) this.vy += CONFIG.GRAVITY;
         this.x += this.vx;
         for (const p of platforms) {
             if (checkAABB(this, p)) {
@@ -1438,12 +1518,14 @@ class Player {
         for (const p of platforms) {
             if (checkAABB(this, p)) {
                 if (this.vy > 0) {
-                    if (!wasGrounded && this.vy > 5) { audio.sfx('land'); g.fx.burst(this.x + this.width / 2, p.y, 5, { color: '#ffffff88', speed: 1.6, life: 14, size: 3, g: 0.02, angle: -Math.PI / 2, spread: Math.PI }); }
+                    if (!wasGrounded && this.vy > 5) { audio.sfx('land'); this.landT = 8; fx.burst(this.x + this.width / 2, p.y, 5, { color: '#ffffff88', speed: 1.6, life: 14, size: 3, g: 0.02, angle: -Math.PI / 2, spread: Math.PI }); }
                     this.y = p.y - this.height; this.vy = 0; this.isGrounded = true; this.groundPlat = p;
                     if (this.isKnockedBack) this.isKnockedBack = false;
                 } else if (this.vy < 0) { this.y = p.y + p.height; this.vy = 0; }
             }
         }
+        if (this.y < 4) { this.y = 4; if (this.vy < 0) this.vy = 0; }
+        if (this.isGrounded && !this.isSliding && Math.abs(this.vx) > 1 && this.animT % 7 === 0) fx.burst(this.x + this.width / 2 - this.facing * 8, this.y + this.height, 1, { color: '#ffffff77', speed: 0.8, life: 12, size: 3, g: -0.01, angle: -Math.PI / 2, spread: 1.4 });
         const gp = this.groundPlat;                            // 記下最近的安全落腳點，掉進深谷時回到這裡
         if (gp && gp.width >= 100 && gp.y > 100 && this.x > gp.x + 24 && this.x + this.width < gp.x + gp.width - 24) this.lastSafe = { x: this.x, y: this.y };
     }
@@ -1452,7 +1534,8 @@ class Player {
         const sup = this.superTimer > 0;
         if (this.invincibleFrames > 0 && !sup && Math.floor(this.invincibleFrames / 3) % 2 === 0) return;
         ctx.save();
-        const cx = this.x - camX + this.width / 2, cy = this.y + this.height / 2, wp = WEAPON_TYPES[this.currentWeapon], T = this.walkTimer;
+        const cx = this.x - camX + this.width / 2, cy = this.y + this.height / 2, wp = WEAPON_TYPES[this.currentWeapon], eq = this.equip, t = this.animT;
+        const air = !this.isGrounded, flying = sup && air, sliding = this.isSliding, charging = this.chargeFrames >= 10 && !sup, hurt = this.hurtT > 0;
         const dress = sup ? '#FFD400' : wp.dress, hair = sup ? '#FFD84D' : '#2D1F17', hairDark = sup ? '#E0A800' : '#2B1E16';
         if (sup) {                                              // 金色氣場
             const pul = Math.sin(this.superTimer * 0.3);
@@ -1476,25 +1559,50 @@ class Player {
             ctx.restore();
         }
 
-        ctx.translate(cx, cy);
-        ctx.scale(this.facing, 1);
+        // ---------- 動作：跑步擺腿擺手、呼吸、跳／落姿勢、二段跳翻滾、著地壓扁、集氣蹲低、開槍後座力、受傷後仰、飛行前傾、過關歡呼 ----------
+        const moving = this.isGrounded && !sliding && this.walkTimer > 0, ph = this.walkTimer * 0.42;
+        let bob = 0, legA = 0, legB = 0, armF = 0.3, armB = -0.3, sx = 1, sy = 1, rot = 0, crouch = 0;
+        if (moving) { bob = -Math.abs(Math.sin(ph)) * 2.2; legA = Math.sin(ph) * 0.85; legB = -legA; armF = 0.25 - Math.sin(ph) * 0.45; armB = -0.25 + Math.sin(ph) * 0.5; }
+        else if (this.isGrounded) { const br = Math.sin(t * 0.07); bob = br * 0.9; sy = 1 + br * 0.012; }
+        if (air && !flying && !sliding) {
+            if (this.vy < 0) { legA = -0.6; legB = 0.4; armF = -1.3; armB = -1.0; sy = 1.05; sx = 0.97; }
+            else { legA = 0.4; legB = -0.3; armF = -0.9; armB = -0.5; }
+        }
+        if (flying) { legA = 0.6; legB = 0.3; armF = -0.6; armB = 0.4; rot = clamp(this.vx / 5, -1, 1) * 0.35 + (this.vy > 1 ? 0.15 : this.vy < -1 ? -0.15 : 0); bob = Math.sin(t * 0.25) * 2; }
+        if (this.landT > 0) { const k = this.landT / 8; sy = 1 - 0.14 * k; sx = 1 + 0.12 * k; }
+        if (charging) { crouch = 2; armF = -0.45; armB = -0.55; }
+        if (this.shotT > 0) armF = -0.15 - this.shotT * 0.05;
+        if (this.cheer) { armF = -2.5 + Math.sin(t * 0.3) * 0.2; armB = -2.5 - Math.sin(t * 0.3) * 0.2; bob = -Math.abs(Math.sin(t * 0.2)) * 9; legA = 0.3; legB = -0.3; }
+        if (this.spinT > 0) rot += (1 - this.spinT / 22) * Math.PI * 2;
+        if (hurt) { rot = -0.35 * Math.min(1, this.hurtT / 12); armF = -1.6; armB = -1.4; }
 
-        if (this.chargeFrames >= CONFIG.CHARGE_LV1_TIME) {      // 集氣光圈（1 段綠／2 段大招色）；不用 shadowBlur，手機才不會卡
-            const lv2 = this.chargeFrames >= CONFIG.CHARGE_LV2_TIME, rc = CHARGE_COLORS[this.currentWeapon][lv2 ? 1 : 0], pul = 1 + Math.sin(this.chargeFrames * 0.5) * 0.06;
+        ctx.translate(cx + (charging ? Math.sin(t * 1.9) * 1.2 : 0), cy + bob + crouch + 24 * (1 - sy));
+        ctx.scale(this.facing * sx, sy);
+
+        if (charging) {                                         // 集氣光圈（1 段綠／2 段大招色）；不用 shadowBlur，手機才不會卡
+            const lv2 = this.chargeFrames >= this.lv2T, rc = CHARGE_COLORS[this.currentWeapon][lv2 ? 1 : 0], pul = 1 + Math.sin(this.chargeFrames * 0.5) * 0.06;
             ctx.strokeStyle = rc; ctx.globalAlpha = 0.3; ctx.lineWidth = 9;
             ctx.beginPath(); ctx.ellipse(0, 0, this.width * 0.78 * pul, this.height * 0.68 * pul, 0, 0, Math.PI * 2); ctx.stroke();
             ctx.globalAlpha = 1; ctx.lineWidth = 2.5;
             ctx.beginPath(); ctx.ellipse(0, 0, this.width * 0.75 * pul, this.height * 0.65 * pul, 0, 0, Math.PI * 2); ctx.stroke();
         }
+        ctx.rotate(rot);
+        if (flying) {                                           // 飛行：背後的金色能量翅膀
+            const fl = Math.sin(t * 0.5) * 6;
+            ctx.fillStyle = 'rgba(255, 224, 90, 0.8)'; ctx.strokeStyle = '#FFF6B0'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(-5, -2); ctx.lineTo(-30, -20 - fl); ctx.lineTo(-24, -4); ctx.lineTo(-33, 6 + fl * 0.6); ctx.lineTo(-20, 8); ctx.lineTo(-6, 8); ctx.closePath(); ctx.fill(); ctx.stroke();
+        }
 
-        const bounce = Math.sin(T * 0.4) * 2, pAngle = this.isGrounded ? bounce * 0.08 : -0.2;
-
-        if (this.isSliding) {
+        if (sliding) {
             ctx.fillStyle = dress; ctx.beginPath(); ctx.roundRect(-16, -6, 28, 14, 6); ctx.fill();
             ctx.fillStyle = '#FFE2D1'; ctx.beginPath(); ctx.arc(6, -2, 10, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = hairDark; ctx.beginPath(); ctx.arc(4, -5, 10, Math.PI, Math.PI * 2); ctx.fill();
+            if (eq.has('HELMET')) { ctx.fillStyle = '#4CC9F0'; ctx.beginPath(); ctx.arc(4, -5, 10.5, Math.PI, Math.PI * 2); ctx.fill(); }
             this.drawBottle(ctx, 14, 0, wp.bottle);
         } else {
+            const pAngle = flying ? -0.5 : air ? (this.vy < 0 ? 0.15 : -0.55) : (moving ? Math.sin(ph) * 0.18 : Math.sin(t * 0.07) * 0.05);
+            const shoe = eq.has('BOOTS') ? '#FF8A3D' : '#FFFFFF';
+            ctx.save(); ctx.translate(-6, 2); ctx.rotate(-armB * 0.9 + 0.1); ctx.fillStyle = '#FFE2D1'; ctx.fillRect(-2, 0, 4, 8); ctx.restore();   // 後手
             ctx.fillStyle = hair;
             ctx.save(); ctx.translate(-8, -12); ctx.rotate(-0.35 + pAngle);
             ctx.beginPath(); ctx.ellipse(0, 0, 7, 11, -0.2, 0, Math.PI * 2); ctx.fill();
@@ -1504,14 +1612,24 @@ class Player {
             ctx.beginPath(); ctx.ellipse(0, 0, 7, 11, 0.2, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = '#FFE66D'; ctx.fillRect(-2, -7, 4, 3); ctx.restore();
 
-            ctx.fillStyle = '#FFE2D1'; ctx.fillRect(-8, 14, 5, 8); ctx.fillRect(3, 14, 5, 8);
-            ctx.fillStyle = '#FFF'; ctx.beginPath(); ctx.roundRect(-9, 20, 7, 4, 2); ctx.roundRect(2, 20, 7, 4, 2); ctx.fill();
+            const leg = (hx, ang) => {                          // 兩條腿各自擺動
+                ctx.save(); ctx.translate(hx, 13); ctx.rotate(ang);
+                ctx.fillStyle = '#FFE2D1'; ctx.fillRect(-2.5, 0, 5, 8);
+                ctx.fillStyle = shoe; ctx.beginPath(); ctx.roundRect(-4.5, 6.5, 9.5, 4, 2); ctx.fill();
+                if (eq.has('BOOTS')) { ctx.fillStyle = '#FFF'; ctx.beginPath(); ctx.moveTo(-4, 6.5); ctx.lineTo(-9, 2); ctx.lineTo(-4, 4.5); ctx.fill(); }
+                ctx.restore();
+            };
+            leg(-4.5, legB); leg(4.5, legA);
 
+            const fl = air && this.vy > 1.5 ? Math.min(3, this.vy * 0.4) : 0;   // 下墜時裙擺會飄起來
             ctx.fillStyle = dress;
-            ctx.beginPath(); ctx.moveTo(-11, 14); ctx.lineTo(-6, -1); ctx.lineTo(6, -1); ctx.lineTo(11, 14); ctx.closePath(); ctx.fill();
+            ctx.beginPath(); ctx.moveTo(-11 - fl, 14 - fl); ctx.lineTo(-6, -1); ctx.lineTo(6, -1); ctx.lineTo(11 + fl, 14 - fl); ctx.closePath(); ctx.fill();
             ctx.strokeStyle = sup ? '#FFF6B0' : wp.stripe; ctx.lineWidth = 1.2;
-            for (let sx = -8; sx <= 8; sx += 3.5) { ctx.beginPath(); ctx.moveTo(sx * 0.7, 0); ctx.lineTo(sx * 1.15, 14); ctx.stroke(); }
-
+            for (let sx2 = -8; sx2 <= 8; sx2 += 3.5) { ctx.beginPath(); ctx.moveTo(sx2 * 0.7, 0); ctx.lineTo(sx2 * 1.15, 14 - fl); ctx.stroke(); }
+            if (eq.has('ARMOR')) {                              // 裝備：護甲胸板
+                ctx.fillStyle = '#C9D3E3'; ctx.beginPath(); ctx.roundRect(-6, 0, 12, 8, 3); ctx.fill();
+                ctx.fillStyle = '#FFD166'; ctx.fillRect(-6, 3, 12, 1.8); ctx.strokeStyle = '#7C8AA5'; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(-6, 0, 12, 8, 3); ctx.stroke();
+            }
             ctx.fillStyle = '#FFF'; ctx.beginPath();
             ctx.ellipse(-3, -1, 5, 3, -0.1, 0, Math.PI * 2); ctx.ellipse(3, -1, 5, 3, 0.1, 0, Math.PI * 2); ctx.fill();
 
@@ -1527,18 +1645,41 @@ class Player {
                 ctx.closePath(); ctx.fill(); ctx.stroke();
             }
             ctx.fillStyle = hair; ctx.beginPath(); ctx.roundRect(-9, -17, 18, 9, 3); ctx.fill();
+            if (eq.has('HELMET')) {                             // 裝備：勇氣頭盔
+                ctx.fillStyle = '#4CC9F0'; ctx.beginPath(); ctx.arc(0, -11, 13.6, Math.PI * 1.06, Math.PI * 1.94); ctx.lineTo(11, -14); ctx.lineTo(-11, -14); ctx.closePath(); ctx.fill();
+                ctx.fillStyle = '#FFE66D'; ctx.beginPath(); ctx.moveTo(0, -25.5); ctx.lineTo(2, -22); ctx.lineTo(-2, -22); ctx.closePath(); ctx.fill();
+                ctx.fillRect(-10, -15.4, 20, 1.8);
+            }
 
             ctx.fillStyle = 'rgba(255, 120, 140, 0.55)';
             ctx.beginPath(); ctx.arc(5, -6, 2.5, 0, Math.PI * 2); ctx.arc(-5, -6, 2.5, 0, Math.PI * 2); ctx.fill();
 
-            ctx.strokeStyle = sup ? '#0F766E' : '#222'; ctx.lineWidth = 1.6;
-            ctx.beginPath(); ctx.arc(4, -8, 2.5, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
-            ctx.beginPath(); ctx.arc(-2, -8, 2.5, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+            const eyeC = sup ? '#0F766E' : '#222';              // 表情：平常笑眼、集氣／開槍／飛行時認真、受傷時叉叉眼
+            if (hurt) {
+                ctx.strokeStyle = eyeC; ctx.lineWidth = 1.6;
+                for (const ex of [4, -2]) { ctx.beginPath(); ctx.moveTo(ex - 2, -10); ctx.lineTo(ex + 2, -6); ctx.moveTo(ex + 2, -10); ctx.lineTo(ex - 2, -6); ctx.stroke(); }
+            } else if (charging || this.shotT > 0 || flying) {
+                ctx.fillStyle = eyeC; ctx.beginPath(); ctx.ellipse(4, -8, 1.7, 2.3, 0, 0, Math.PI * 2); ctx.ellipse(-2, -8, 1.7, 2.3, 0, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = eyeC; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(1.5, -12); ctx.lineTo(6.5, -10.5); ctx.moveTo(-4.5, -10.5); ctx.lineTo(0.5, -12); ctx.stroke();
+            } else {
+                ctx.strokeStyle = eyeC; ctx.lineWidth = 1.6;
+                ctx.beginPath(); ctx.arc(4, -8, 2.5, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+                ctx.beginPath(); ctx.arc(-2, -8, 2.5, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+            }
+            if (charging || this.shotT > 0) { ctx.fillStyle = '#E05A47'; ctx.beginPath(); ctx.ellipse(1, -3.5, 1.8, 2.2, 0, 0, Math.PI * 2); ctx.fill(); }
+            else if (hurt) { ctx.strokeStyle = '#E05A47'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(-1, -3); ctx.lineTo(0.5, -4.2); ctx.lineTo(2, -3); ctx.lineTo(3.5, -4.2); ctx.stroke(); }
+            else { ctx.strokeStyle = '#E05A47'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(1, -4, 2, 0.2, Math.PI - 0.2); ctx.stroke(); }
 
-            ctx.strokeStyle = '#E05A47'; ctx.lineWidth = 1.2;
-            ctx.beginPath(); ctx.arc(1, -4, 2, 0.2, Math.PI - 0.2); ctx.stroke();
-
-            this.drawBottle(ctx, 10, 4, wp.bottle);
+            // 前手拿水壺（開槍後座力、集氣時舉起發光）
+            ctx.save(); ctx.translate(6, 2); ctx.rotate(armF);
+            ctx.fillStyle = '#FFE2D1'; ctx.fillRect(0, -2.2, 5, 4.4);
+            if (eq.has('GLOVES')) { ctx.fillStyle = '#FF5E97'; ctx.fillRect(2.5, -3, 3, 6); }
+            ctx.translate(5, 1.5);
+            if (this.shotT > 4) { ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.beginPath(); ctx.arc(16, -3, 4 + (this.shotT - 4) * 0.8, 0, Math.PI * 2); ctx.fill(); }
+            this.drawBottle(ctx, 0, 0, wp.bottle);
+            if (charging) { ctx.globalAlpha = 0.5 + 0.3 * Math.sin(this.chargeFrames * 0.6); ctx.fillStyle = CHARGE_COLORS[this.currentWeapon][this.chargeFrames >= this.lv2T ? 1 : 0]; ctx.beginPath(); ctx.arc(6, -4, 6 + Math.min(1, this.chargeFrames / this.lv2T) * 6, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1; }
+            ctx.restore();
+            if (this.hasSet && (t % 50) < 8) { ctx.fillStyle = '#FFE66D'; const k = (t % 50) / 8; ctx.beginPath(); ctx.arc(-14 + k * 26, -28 + Math.sin(k * 3) * 3, 2, 0, Math.PI * 2); ctx.fill(); }   // 全套裝備的閃光
         }
         ctx.restore();
     }
@@ -1769,80 +1910,133 @@ function drawPlatform(ctx, p, rx, ph, th, camX) {
 // ==========================================
 // 13. 十大關卡：主題、敵人配置、地形
 // ==========================================
+// 洛克人式裝備：藏在每關的高處（要二段跳或踩平台才拿得到），集齊四件＝全套超級裝甲
+const EQUIP = {
+    BOOTS: { icon: '🥾', name: '疾風靴', desc: '跑更快、二段跳更高', col: '#FF8A3D' },
+    ARMOR: { icon: '🛡️', name: '守護護甲', desc: '每次受傷少 1 點', col: '#4CC9F0' },
+    GLOVES: { icon: '🧤', name: '蓄力手套', desc: '集氣速度變快', col: '#FF5E97' },
+    HELMET: { icon: '⛑️', name: '勇氣頭盔', desc: '血量上限 +4、受傷後無敵更久', col: '#FFD166' },
+    tank: { icon: '🔋', name: '能量罐', desc: 'HP 歸零時會自動用掉一個復活（最多存 3 個）', col: '#5EEAD4' }
+};
+class Capsule {
+    constructor(id, kind, x, y) { this.id = id; this.kind = kind; this.x = x; this.y = y; this.width = 34; this.height = 34; this.age = 0; this.dead = false; }
+    update() { this.age++; }
+    draw(ctx, camX) {
+        const E = EQUIP[this.kind], cx = this.x - camX + 17, cy = this.y + 17 + Math.sin(this.age * 0.08) * 4, t = this.age;
+        if (cx < -60 || cx > VIEW_W + 60) return;
+        ctx.save();
+        ctx.fillStyle = E.col; ctx.globalAlpha = 0.22 + 0.1 * Math.sin(t * 0.12); circle(ctx, cx, cy, 30); ctx.globalAlpha = 0.35; circle(ctx, cx, cy, 23);
+        ctx.globalAlpha = 1; ctx.fillStyle = 'rgba(255,255,255,0.92)'; circle(ctx, cx, cy, 17);
+        ctx.strokeStyle = E.col; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, 17, 0, TAU); ctx.stroke();
+        ctx.font = `22px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000'; ctx.fillText(E.icon, cx, cy + 1);
+        ctx.fillStyle = '#FFF'; for (let i = 0; i < 3; i++) { const a = t * 0.06 + i * 2.09; ctx.globalAlpha = 0.85; circle(ctx, cx + Math.cos(a) * 26, cy + Math.sin(a) * 26, 2.2); }
+        ctx.restore();
+    }
+}
+
 const LEVELS = [null,
-    { name: '初生綠地', track: 's1', gaps: 1, slides: 0, foes: ['SLIME', 'SLIME', 'SLIME', 'HOPPER', 'HOPPER'], swarm: ['SLIME', 'HOPPER'], tip: '按住攻擊可以集氣，放開就是大招！',
+    { name: '初生綠地', track: 's1', len: 3600, gaps: 3, slides: 0, foes: { SLIME: 5, HOPPER: 4 }, secret: 'tank', swarm: ['SLIME', 'HOPPER'], tip: '按住攻擊集氣，放開就是大招！空中再按一次「跳」＝二段跳',
       pal: { a: ['#4ADE80', '#166534', '#DCFCE7'], b: ['#FBBF24', '#92400E', '#FEF3C7'] }, plat: { body: '#2F6B4F', top: '#63D471', edge: '#173D2C', detail: '#0B2A1C', pat: 'dots', tufts: true } },
-    { name: '滑壘糖果巷', track: 's2', gaps: 1, slides: 2, foes: ['SLIME', 'SLIME', 'HOPPER', 'HOPPER', 'SHOOTER'], shooterSkin: 'b', swarm: ['SLIME', 'HOPPER'], tip: '矮隧道要按「滑」才鑽得過去！',
+    { name: '滑壘糖果巷', track: 's2', len: 4000, gaps: 3, slides: 3, foes: { SLIME: 4, HOPPER: 3, SHOOTER: 2 }, secret: 'BOOTS', shooterSkin: 'b', swarm: ['SLIME', 'HOPPER'], tip: '矮隧道要按「滑」才鑽得過去！高處有閃光的膠囊',
       pal: { a: ['#F9A8D4', '#9D174D', '#FDF2F8'], b: ['#FB7185', '#9F1239', '#FFE4E6'] }, plat: { body: '#B8508B', top: '#FFB3D9', edge: '#6B1F4B', detail: '#5A1440', pat: 'stripe' } },
-    { name: '【烈焰巨怪】BOSS戰', track: 's3', boss: 'FIRE_BOSS', reward: 'FIRE', swarm: ['SLIME', 'BAT'], tip: '烈焰巨怪會丟火球和震地，小心閃躲！',
+    { name: '【烈焰巨怪】BOSS戰', track: 's3', len: 3200, gaps: 2, slides: 0, foes: { SLIME: 3, BAT: 2 }, boss: 'FIRE_BOSS', reward: 'FIRE', swarm: ['SLIME', 'BAT'], tip: '烈焰巨怪會丟火球和震地，小心閃躲！',
       pal: { a: ['#F87171', '#7F1D1D', '#FEE2E2'], b: ['#F59E0B', '#78350F', '#FEF3C7'] }, plat: { body: '#5B1A16', top: '#F26B21', edge: '#2A0A08', detail: '#1E0605', pat: 'brick' } },
-    { name: '警衛巡邏街', track: 's4', gaps: 2, slides: 1, foes: ['CHARGER', 'CHARGER', 'CHARGER', 'SHOOTER', 'SHOOTER', 'BAT'], swarm: ['SLIME', 'BAT', 'HOPPER'], tip: '野豬頭上出現「!」就要衝過來了，快跳開！',
+    { name: '警衛巡邏街', track: 's4', len: 4400, gaps: 5, slides: 2, foes: { CHARGER: 5, SHOOTER: 3, BAT: 3 }, secret: 'ARMOR', swarm: ['SLIME', 'BAT', 'HOPPER'], tip: '野豬頭上出現「!」就要衝過來了，快跳開！',
       pal: { a: ['#C08457', '#5B3A29', '#FFE8D6'], b: ['#94A3B8', '#334155', '#7DD3FC'] }, plat: { body: '#4A3A66', top: '#9C7BD3', edge: '#221A38', detail: '#150F26', pat: 'brick' } },
-    { name: '無底深谷', track: 's5', gaps: 3, slides: 1, foes: ['BAT', 'BAT', 'BAT', 'HOPPER', 'HOPPER', 'SLIME', 'SHOOTER'], shooterSkin: 'b', swarm: ['BAT', 'HOPPER', 'SLIME'], tip: '掉進深谷會扣血，會回到最近的安全地面。',
+    { name: '無底深谷', track: 's5', len: 4600, gaps: 7, slides: 2, foes: { BAT: 5, HOPPER: 4, SLIME: 2, SHOOTER: 2 }, secret: 'tank', shooterSkin: 'b', swarm: ['BAT', 'HOPPER', 'SLIME'], tip: '掉進深谷會扣血，會回到最近的安全地面。',
       pal: { a: ['#A78BFA', '#4C1D95', '#EDE9FE'], b: ['#34D399', '#065F46', '#D1FAE5'] }, plat: { body: '#3A2A66', top: '#8B6FE0', edge: '#1B1236', detail: '#100A26', pat: 'dots' } },
-    { name: '【極凍雪魔】BOSS戰', track: 's6', boss: 'ICE_BOSS', reward: 'ICE', swarm: ['SLIME', 'BAT'], tip: '雪魔怕火！按「換武器」換成烈焰火球。',
+    { name: '【極凍雪魔】BOSS戰', track: 's6', len: 3200, gaps: 3, slides: 0, foes: { SLIME: 3, BAT: 3 }, boss: 'ICE_BOSS', reward: 'ICE', swarm: ['SLIME', 'BAT'], tip: '雪魔怕火！按「換武器」換成烈焰火球。',
       pal: { a: ['#93C5FD', '#1E3A8A', '#DBEAFE'], b: ['#67E8F9', '#155E75', '#ECFEFF'] }, plat: { body: '#2E75B6', top: '#DFF6FF', edge: '#123E66', detail: '#0B2A48', pat: 'ice' } },
-    { name: '天空浮島', track: 's7', gaps: 5, slides: 1, foes: ['DIVER', 'DIVER', 'DIVER', 'BAT', 'SLIME', 'SLIME', 'SHOOTER'], swarm: ['DIVER', 'BAT', 'SLIME'], tip: '小島之間隔著空隙，按住跳可以跳更遠。',
+    { name: '天空浮島', track: 's7', len: 4800, gaps: 9, slides: 2, foes: { DIVER: 5, BAT: 2, SLIME: 3, SHOOTER: 2 }, secret: 'GLOVES', swarm: ['DIVER', 'BAT', 'SLIME'], tip: '小島之間隔著空隙，可以二段跳跳更遠。',
       pal: { a: ['#F8FAFC', '#64748B', '#FDE68A'], b: ['#60A5FA', '#1E3A8A', '#FDE68A'] }, plat: { body: '#8C7A66', top: '#7BD08F', edge: '#4D4132', detail: '#3B3025', pat: 'dots', tufts: true } },
-    { name: '疾走要塞', track: 's8', gaps: 4, slides: 2, foes: ['CHARGER', 'CHARGER', 'SHOOTER', 'SHOOTER', 'SHOOTER', 'SLIME', 'BAT'], swarm: ['SLIME', 'BAT', 'HOPPER'], tip: '砲台會瞄準你射擊，看到紅光閃就是要開火了！',
+    { name: '疾走要塞', track: 's8', len: 5000, gaps: 8, slides: 4, foes: { CHARGER: 4, SHOOTER: 4, SLIME: 2, BAT: 2 }, secret: 'HELMET', swarm: ['SLIME', 'BAT', 'HOPPER'], tip: '砲台會瞄準你射擊，看到紅光閃就是要開火了！',
       pal: { a: ['#9CA3AF', '#374151', '#FCA5A5'], b: ['#6B7280', '#111827', '#F87171'] }, plat: { body: '#4B4F5A', top: '#8E95A5', edge: '#20222A', detail: '#15161B', pat: 'brick' } },
-    { name: '【轟雷魔像】BOSS戰', track: 's9', boss: 'THUNDER_BOSS', reward: 'THUNDER', swarm: ['BAT', 'SLIME'], tip: '魔像怕冰！注意地上的黃色預警線，那裡會落雷。',
+    { name: '【轟雷魔像】BOSS戰', track: 's9', len: 3200, gaps: 3, slides: 0, foes: { BAT: 3, SHOOTER: 3 }, boss: 'THUNDER_BOSS', reward: 'THUNDER', swarm: ['BAT', 'SLIME'], tip: '魔像怕冰！注意地上的黃色預警線，那裡會落雷。',
       pal: { a: ['#FDE047', '#854D0E', '#FEF9C3'], b: ['#FBBF24', '#78350F', '#FEF3C7'] }, plat: { body: '#3B4266', top: '#6D78B5', edge: '#181C33', detail: '#0E1122', pat: 'ice' } },
-    { name: '【終極暗黑魔王】決戰', track: 's10', boss: 'FINAL_BOSS', reward: null, swarm: ['SLIME', 'BAT', 'HOPPER'], tip: '爸爸就在魔王後面！魔王怕雷，加油！',
+    { name: '【終極暗黑魔王】決戰', track: 's10', len: 3400, gaps: 4, slides: 0, foes: { CHARGER: 3, BAT: 3, SLIME: 3 }, secret: 'tank', boss: 'FINAL_BOSS', reward: null, swarm: ['SLIME', 'BAT', 'HOPPER'], tip: '爸爸就在魔王後面！魔王怕雷，加油！',
       pal: { a: ['#A855F7', '#3B0764', '#F0ABFC'], b: ['#EC4899', '#500724', '#FBCFE8'] }, plat: { body: '#4D0C3A', top: '#C2255C', edge: '#22051A', detail: '#16030F', pat: 'brick' } }
 ];
 
 function buildLevel(n) {
-    const T = LEVELS[n], isBoss = !!T.boss, length = isBoss ? 1400 : 2000, rnd = mulberry32(n * 7919 + 13);
+    const T = LEVELS[n], isBoss = !!T.boss, length = T.len, rnd = mulberry32(n * 7919 + 13);
     const platforms = [{ x: -30, y: 0, width: 30, height: 450 }, { x: length, y: 0, width: 40, height: 450 }];
-    const enemies = [], pickups = [], segs = [];
-    if (isBoss) {
-        platforms.push({ x: 0, y: 380, width: length, height: 70 });
-        segs.push({ l: 0, r: length });
-        platforms.push({ x: 230, y: 290, width: 130, height: 20 }, { x: 630, y: 272, width: 140, height: 20 }, { x: 1030, y: 290, width: 130, height: 20 });
-        pickups.push(new Pickup(690, 246, 4, true));
-        enemies.push(new Boss(T.boss, 900, 380 - BOSS_DEFS[T.boss].h, 420, length - 60));
-    } else {
-        const gap = 110, g = T.gaps, segLen = Math.floor((length - g * gap) / (g + 1));
-        for (let i = 0; i <= g; i++) {                        // 地面剛好鋪滿整關（原版最後一段會超出邊界）
-            const x = i * (segLen + gap), w = i === g ? length - x : segLen;
-            platforms.push({ x, y: 380, width: w, height: 70 }); segs.push({ l: x, r: x + w });
-        }
-        const tunnels = [], wide = segs.filter(s => s.r - s.l >= 260), cand = wide.length ? wide : segs;
-        for (let s = 0; s < T.slides; s++) {                  // 滑行隧道：要按「滑」才鑽得過
-            const sg = cand[(s * 2 + 1) % cand.length], tw = Math.min(200, sg.r - sg.l - 60), x = sg.l + (sg.r - sg.l - tw) / 2;
-            if (x + tw > length - 240) continue;
-            const t = { x, y: 330, width: tw, height: 25 }; platforms.push(t); tunnels.push(t);
-        }
-        const hs = [300, 280, 296, 272];                      // 空中平台：高度都跳得上去（原版有兩個高到跳不上）
-        for (let i = 0; i < 4; i++) {
-            const x = 320 + i * 360;
-            if (x + 130 > length - 200 || tunnels.some(t => x < t.x + t.width + 40 && x + 130 > t.x - 40)) continue;
-            platforms.push({ x, y: hs[i], width: 130, height: 20 });
-            if (i % 2 === 1) pickups.push(new Pickup(x + 54, hs[i] - 26, 4, true));
-        }
-        const placed = [];
-        const place = (kind) => {
-            const d = ENEMY_DEFS[kind];
-            for (let a = 0; a < 60; a++) {
-                let x, sg = null;
-                if (d.fly) x = 520 + rnd() * (length - 520 - 340);
-                else { sg = segs[Math.floor(rnd() * segs.length)]; const lo = Math.max(sg.l + 20, 340), hi = Math.min(sg.r - 20 - d.w, length - 330); if (hi <= lo) continue; x = lo + rnd() * (hi - lo); }
-                if (placed.some(px => Math.abs(px - x) < 150)) continue;
-                placed.push(x); return { x, sg };
-            }
-            return null;
-        };
-        for (const kind of T.foes) {                          // 敵人只站在地面上（原版會浮在深谷上方）
-            const d = ENEMY_DEFS[kind], pos = place(kind); if (!pos) continue;
-            const y = d.fly ? 130 + rnd() * 110 : 380 - d.h, sg = pos.sg;
-            const o = { pal: kind === 'SHOOTER' ? T.pal.b : T.pal.a, skin: kind === 'SHOOTER' ? (T.shooterSkin || 'a') : (rnd() < 0.35 ? 'b' : 'a') };
-            if (sg) { o.seg = [sg.l, sg.r]; o.pl = Math.max(sg.l + 6, pos.x - 140); o.pr = Math.min(sg.r - 6, pos.x + 140 + d.w); }
-            else { o.pl = Math.max(60, pos.x - 150); o.pr = Math.min(length - 60, pos.x + 150 + d.w); }
-            enemies.push(new Enemy(kind, pos.x, y, o));
+    const enemies = [], pickups = [], items = [], flags = [], segs = [];
+    const gap = 110, g = T.gaps, runEnd = isBoss ? length - 900 : length;     // Boss 關：前面是跑道，最後 900 是競技場
+    const segLen = Math.floor((runEnd - g * gap) / (g + 1));
+    for (let i = 0; i <= g; i++) {                        // 地面剛好鋪滿整關（原版最後一段會超出邊界）
+        const x = i * (segLen + gap), w = i === g ? length - x : segLen;
+        platforms.push({ x, y: 380, width: w, height: 70 }); segs.push({ l: x, r: x + w });
+    }
+    const limit = isBoss ? runEnd - 60 : length - 320;     // 這條線之後不放地形（終點／競技場）
+    const busy = [], free = (a, b) => !busy.some(r => a < r[1] + 30 && b > r[0] - 30);
+    // 滑行隧道：要按「滑」才鑽得過去（也可以跳到上面走過去）
+    const wide = segs.filter(s => s.r - s.l >= 340 && s.l + 200 < limit), cand = wide.length ? wide : segs, usedSeg = new Set();
+    for (let s = 0; s < T.slides; s++) {
+        const k = Math.min(cand.length - 1, Math.floor((s + 0.5) * cand.length / T.slides));
+        if (usedSeg.has(k)) continue; usedSeg.add(k);
+        // 隧道兩端各留 100 以上：滑行停不下來，離深谷太近會直接滑進去
+        const sg = cand[k], tw = Math.min(200, sg.r - sg.l - 200), x = sg.l + (sg.r - sg.l - tw) / 2;
+        if (tw < 120 || x + tw > limit || x < 300) continue;
+        platforms.push({ x, y: 330, width: tw, height: 25 }); busy.push([x, x + tw]);
+    }
+    // 隱藏裝備：一個踩得上去的中層平台＋一個高處平台（單跳兩段，或直接二段跳都夠得到）
+    if (T.secret) {
+        const cs = segs.filter(s => s.r - s.l >= 380 && s.l > 600 && s.r < limit - 200 && free(s.l + 70, s.l + 360));
+        const sg = cs.length ? cs[Math.floor(cs.length * 0.4)] : null;
+        if (sg) {
+            const X = sg.l + 230;
+            platforms.push({ x: X - 150, y: 296, width: 120, height: 20 }, { x: X, y: 194, width: 130, height: 20 });
+            busy.push([X - 160, X + 140]);
+            items.push(new Capsule('s' + n + T.secret, T.secret, X + 48, 194 - 40));
         }
     }
-    return { id: n, name: T.name, width: length, theme: T, isBossStage: isBoss, reward: T.reward, goal: { x: length - 120, y: 270, width: 44, height: 110 }, platforms, enemies, pickups, segs };
+    // 缺口前後不放低平台：起跳時頭會撞到，跳不過去
+    for (let i = 0; i < segs.length - 1; i++) busy.push([segs[i].r - 200, segs[i + 1].l + 60]);
+    // 空中平台：高度都跳得上去（原版有兩個高到跳不上）；每隔一段有愛心；偶爾有階梯
+    const hs = [300, 280, 296, 272, 288];
+    for (let x = 320, i = 0; x < limit - 160; x += 330 + ((i * 47) % 4) * 25, i++) {
+        const y = hs[i % hs.length];
+        if (!free(x, x + 130)) continue;
+        platforms.push({ x, y, width: 130, height: 20 }); busy.push([x, x + 130]);
+        if (i % 3 === 2) pickups.push(new Pickup(x + 54, y - 26, 4, true));
+        if (i % 4 === 3 && free(x + 150, x + 260)) { platforms.push({ x: x + 150, y: y - 76, width: 110, height: 20 }); busy.push([x + 150, x + 260]); }
+    }
+    // 檢查點：死掉會從這裡繼續，不用整關重來
+    const flagXs = isBoss ? [runEnd * 0.5, runEnd + 60] : [length * 0.34, length * 0.67];
+    for (const fx0 of flagXs) {
+        const sg = segs.find(s => fx0 > s.l + 50 && fx0 < s.r - 50) || segs.reduce((b, s) => Math.abs((s.l + s.r) / 2 - fx0) < Math.abs((b.l + b.r) / 2 - fx0) ? s : b, segs[0]);
+        flags.push({ x: clamp(fx0, sg.l + 50, sg.r - 70), on: false });
+    }
+    // 敵人只站在地面上（原版會浮在深谷上方）
+    const list = []; for (const [k, c] of Object.entries(T.foes)) for (let i = 0; i < c; i++) list.push(k);
+    for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
+    const placed = [], lo0 = 420, hi0 = isBoss ? runEnd - 160 : length - 360;
+    const place = (kind) => {
+        const d = ENEMY_DEFS[kind];
+        for (let a = 0; a < 90; a++) {
+            let x, sg = null;
+            if (d.fly) x = lo0 + rnd() * (hi0 - lo0);
+            else { sg = segs[Math.floor(rnd() * segs.length)]; const lo = Math.max(sg.l + 20, lo0), hi = Math.min(sg.r - 20 - d.w, hi0); if (hi <= lo) continue; x = lo + rnd() * (hi - lo); }
+            if (placed.some(px => Math.abs(px - x) < 140)) continue;
+            placed.push(x); return { x, sg };
+        }
+        return null;
+    };
+    for (const kind of list) {
+        const d = ENEMY_DEFS[kind], pos = place(kind); if (!pos) continue;
+        const y = d.fly ? 130 + rnd() * 110 : 380 - d.h, sg = pos.sg;
+        const o = { pal: kind === 'SHOOTER' ? T.pal.b : T.pal.a, skin: kind === 'SHOOTER' ? (T.shooterSkin || 'a') : (rnd() < 0.35 ? 'b' : 'a') };
+        if (sg) { o.seg = [sg.l, sg.r]; o.pl = Math.max(sg.l + 6, pos.x - 140); o.pr = Math.min(sg.r - 6, pos.x + 140 + d.w); }
+        else { o.pl = Math.max(60, pos.x - 150); o.pr = Math.min(length - 60, pos.x + 150 + d.w); }
+        enemies.push(new Enemy(kind, pos.x, y, o));
+    }
+    if (isBoss) {
+        const AL = runEnd;
+        for (const [ox, oy, w] of [[140, 290, 130], [400, 272, 140], [660, 290, 130]]) platforms.push({ x: AL + ox, y: oy, width: w, height: 20 });
+        pickups.push(new Pickup(AL + 460, 246, 4, true));
+        enemies.push(new Boss(T.boss, length - 320, 380 - BOSS_DEFS[T.boss].h, AL, length - 60));
+    }
+    return { id: n, name: T.name, width: length, runEnd, theme: T, isBossStage: isBoss, reward: T.reward, goal: { x: length - 120, y: 270, width: 44, height: 110 }, platforms, enemies, pickups, items, flags, segs };
 }
 
 // 結局：被救出來的爸爸
@@ -1877,14 +2071,39 @@ class Game {
         this.player = new Player(80, 200);
         this.shake = 0; this.flash = 0; this.banner = null; this.clearAnim = 0; this.deadAnim = 0; this.newWeapon = null;
         this.kills = 0; this.combo = 0; this.comboT = 0; this.superCool = 0; this.superKills = 0; this.swarmT = 0; this.boss = null;
+        this.cpX = null; this.items = []; this.flags = []; this.rot = Store.get('rot', 0);
         this.layout(); this.loadStage(1); this.bindEvents(); this.refreshMenu(); this.updateMuteBtn();
         this.loop = this.loop.bind(this);
         requestAnimationFrame(this.loop);
     }
 
     // ---------- 版面：直立＝畫面貼上緣、按鈕在下；橫放＝鋪滿螢幕 ----------
+    applyRot() {
+        const w = window.innerWidth, h = window.innerHeight, wrap = document.getElementById('viewport-wrapper');
+        const rot = h > w * 1.05 ? this.rot : 0;            // 手機本身已經橫的，就不需要假橫向
+        document.body.classList.toggle('rot', rot !== 0);
+        wrap.style.cssText = rot ? `position:fixed;inset:auto;top:${rot > 0 ? 0 : h}px;left:${rot > 0 ? w : 0}px;width:${h}px;height:${w}px;transform:rotate(${rot}deg);transform-origin:0 0;` : '';
+        return rot ? [h, w] : [w, h];
+    }
+    setRot(r) { this.rot = r; Store.set('rot', r); this.layout(); }
+    async toggleLandscape() {
+        const w = window.innerWidth, h = window.innerHeight;
+        if (h > w * 1.05 && this.rot === 0) {               // 直立中：先試「全螢幕＋鎖橫向」（Android Chrome 可以，畫面會真的轉橫）
+            let locked = false;
+            try {
+                const el = document.documentElement;
+                if (el.requestFullscreen && !document.fullscreenElement) await el.requestFullscreen();
+                if (screen.orientation && screen.orientation.lock) { await screen.orientation.lock('landscape'); locked = true; }
+            } catch (e) { /* 這支手機不能鎖，改用假橫向 */ }
+            if (locked) { this.toast('已切換成橫向！', 1400); return; }
+            this.setRot(90); this.toast('請把手機向左倒（螢幕右邊朝上）\n再按一次可換成向右倒', 3400); return;
+        }
+        if (this.rot === 90) { this.setRot(-90); this.toast('請把手機向右倒（螢幕左邊朝上）\n再按一次恢復直立', 3400); }
+        else if (this.rot === -90) { this.setRot(0); this.toast('已恢復直立', 1400); }
+        else { try { if (document.fullscreenElement) await document.exitFullscreen(); if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {} }
+    }
     layout() {
-        const vw = window.innerWidth, vh = window.innerHeight, portrait = vh > vw * 1.1;
+        const [vw, vh] = this.applyRot(), portrait = vh > vw * 1.1;
         document.body.classList.toggle('portrait', portrait);
         let cw;
         if (portrait) { VIEW_W = clamp(Math.round(vw * H / Math.max(220, vh - 250)), 440, 800); cw = vw; }
@@ -1911,34 +2130,46 @@ class Game {
         setTimeout(() => { if (this.state === 'title') sing(); }, 900);
     }
     goHome() {
-        this.state = 'title'; this.setScreen('title'); this.showTouch(false); this.hideToast(); voice.stop();
+        this.state = 'title'; this.setScreen('title'); this.showTouch(false); this.hideToast(); voice.stop(); audio.chargeStop();
         try { speechSynthesis.cancel(); } catch (e) {}
         audio.resume(); audio.playMusic('title'); this.refreshMenu(); this.singT = 0;
     }
     newGame() {
-        this.player.unlockedWeapons = ['NORMAL']; this.player.currentWeapon = 'NORMAL'; this.kills = 0;
+        const p = this.player;
+        p.unlockedWeapons = ['NORMAL']; p.currentWeapon = 'NORMAL'; p.equip = new Set(); p.tanks = 0; p.collected = new Set(); this.kills = 0;
         try { speechSynthesis.cancel(); } catch (e) {}
         this.beginStage(1);
     }
     continueGame() {
         const s = Store.get('save', null); if (!s) return this.newGame();
-        const ok = [...new Set((s.weapons || []).filter(w => WEAPON_TYPES[w]))];
-        this.player.unlockedWeapons = ok.length ? ok : ['NORMAL']; this.player.currentWeapon = WEAPON_TYPES[s.cur] && ok.includes(s.cur) ? s.cur : this.player.unlockedWeapons[this.player.unlockedWeapons.length - 1];
+        const p = this.player, ok = [...new Set((s.weapons || []).filter(w => WEAPON_TYPES[w]))];
+        p.unlockedWeapons = ok.length ? ok : ['NORMAL'];
+        p.currentWeapon = WEAPON_TYPES[s.cur] && ok.includes(s.cur) ? s.cur : p.unlockedWeapons[p.unlockedWeapons.length - 1];
+        p.equip = new Set((s.equip || []).filter(k => EQUIP[k] && k !== 'tank')); p.tanks = clamp(s.tanks | 0, 0, 3); p.collected = new Set(s.got || []);
         try { speechSynthesis.cancel(); } catch (e) {}
         this.beginStage(clamp(s.stage | 0, 1, this.maxStage));
     }
-    saveProgress(stage) { Store.set('save', { stage, weapons: this.player.unlockedWeapons, cur: this.player.currentWeapon }); }
+    saveProgress(stage) { const p = this.player; Store.set('save', { stage, weapons: p.unlockedWeapons, cur: p.currentWeapon, equip: [...p.equip], tanks: p.tanks, got: [...p.collected] }); }
     loadStage(n) {
         this.stage = n; this.level = buildLevel(n); this.player.reset(80, 200);
         this.bullets = []; this.ebullets = []; this.pickups = this.level.pickups; this.fx = new FX();
+        this.items = this.level.items.filter(it => !this.player.collected.has(it.id)); this.flags = this.level.flags;
         this.cameraX = 0; this.clearAnim = 0; this.deadAnim = 0; this.newWeapon = null; this.boss = this.level.enemies.find(e => e.isBoss) || null;
         this.combo = 0; this.superKills = 0; this.swarmT = 0; this.superCool = 0; this.shake = 0; this.flash = 0;
     }
-    beginStage(n) {
-        this.loadStage(n); this.state = 'playing'; this.setScreen(null); this.showTouch(true); this.hideToast();
+    beginStage(n, keepCP = false) {                        // keepCP＝死掉後從檢查點繼續；重玩／下一關則從頭
+        if (!keepCP) this.cpX = null;
+        this.loadStage(n);
+        const resumed = keepCP && this.cpX !== null;
+        if (resumed) {
+            const p = this.player; p.x = this.cpX; p.y = 300; p.lastSafe = { x: p.x, y: 332 };
+            this.cameraX = clamp(p.x - VIEW_W * 0.35, 0, this.level.width - VIEW_W);
+            for (const f of this.flags) if (f.x <= this.cpX) f.on = true;
+        }
+        this.state = 'playing'; this.setScreen(null); this.showTouch(true); this.hideToast();
         audio.unlock(); audio.resume(); audio.playMusic(this.level.theme.track);
-        this.banner = { text: `STAGE ${n}`, sub: this.level.name + '\n' + this.level.theme.tip, frames: 170, max: 170 };
-        this.saveProgress(n); speak(`第${n}關，${this.level.name.replace(/[【】]/g, '')}`);
+        this.banner = resumed ? { text: '從檢查點繼續！', sub: '', frames: 90, max: 90 } : { text: `STAGE ${n}`, sub: this.level.name + '\n' + this.level.theme.tip, frames: 170, max: 170 };
+        this.saveProgress(n); if (!resumed) speak(`第${n}關，${this.level.name.replace(/[【】]/g, '')}`);
     }
     nextStage() {
         if (this.state !== 'playing') return;
@@ -1947,7 +2178,7 @@ class Game {
     }
     pause() {
         if (this.state !== 'playing') return;
-        this.state = 'paused'; this.setScreen('pause'); audio.suspend(); voice.stop(); this.hideToast(); audio.sfx('pause');
+        this.state = 'paused'; this.setScreen('pause'); audio.chargeStop(); this.player.chargeFrames = 0; audio.suspend(); voice.stop(); this.hideToast(); audio.sfx('pause');
         try { speechSynthesis.cancel(); } catch (e) {}
     }
     resumeGame() { if (this.state !== 'paused') return; this.state = 'playing'; this.setScreen(null); audio.resume(); }
@@ -1988,6 +2219,7 @@ class Game {
         tap('btn-pause', () => this.pause());
         tap('btn-mute', () => this.toggleMute());
         tap('btn-mic', () => this.onMicTap());
+        tap('btn-land', () => this.toggleLandscape()); tap('btn-land2', () => this.toggleLandscape()); tap('btn-land3', () => this.toggleLandscape());
         window.addEventListener('resize', () => this.layout());
         window.addEventListener('orientationchange', () => setTimeout(() => this.layout(), 250));
         if (window.visualViewport) window.visualViewport.addEventListener('resize', () => this.layout());
@@ -2024,10 +2256,12 @@ class Game {
     activateSuper() {
         const p = this.player;
         if (this.state !== 'playing' || p.superTimer > 0 || this.superCool > 0) return false;
-        p.superTimer = SUPER_TIME; p.hp = p.maxHp; p.chargeFrames = 0; p.invincibleFrames = 0; p.isKnockedBack = false;
+        p.superTotal = SUPER_TIME + (p.hasSet ? 300 : 0); p.superTimer = p.superTotal;
+        p.hp = p.maxHp; p.chargeFrames = 0; p.invincibleFrames = 0; p.isKnockedBack = false; audio.chargeStop();
+        p.vy = -6; p.isGrounded = false;                   // 起飛
         this.superKills = 0; this.swarmT = 0; this.ebullets.length = 0;
         this.flash = 1; this.shake = 14;
-        this.banner = { text: '超級Q妹模式！！', sub: '爸爸好帥 → 怪物大量出現，盡情打吧！', frames: 130, max: 130 };
+        this.banner = { text: '超級Q妹模式！！', sub: '會飛了！按住「跳」往上飛、按住「滑」往下衝\n怪物大量出現，盡情打吧！', frames: 150, max: 150 };
         this.fx.burst(p.x + p.width / 2, p.y + p.height / 2, 34, { color: ['#FFD400', '#FFF6B0', '#FFFFFF'], speed: 7, life: 34, size: 5, g: 0, shape: 'ci' });
         audio.sfx('boom'); audio.jingle('weapon');
         p.say('爸爸最帥！變身！', 110); speak('爸爸最帥！超級Q妹出擊！', 1.8, 1.1);
@@ -2091,23 +2325,33 @@ class Game {
     }
     stageClear() {
         if (this.state !== 'playing') return;
-        this.state = 'clear'; this.clearAnim = 150; audio.stopMusic(); voice.stop(); this.hideToast();
+        this.state = 'clear'; this.clearAnim = 150; audio.stopMusic(); audio.chargeStop(); voice.stop(); this.hideToast();
+        this.player.chargeFrames = 0; this.player.cheer = true;
         audio.jingle(this.newWeapon ? 'weapon' : 'clear');
         if (!this.newWeapon) speak('過關啦！');
-        this.combo = 0;
+        this.combo = 0; this.cpX = null;
         if (this.stage < this.maxStage) this.saveProgress(this.stage + 1);
     }
     onFall() {
         const p = this.player;
         if (p.superTimer <= 0) { p.hp = Math.max(0, p.hp - CONFIG.PIT_DAMAGE); audio.sfx('hurt'); }
-        if (p.hp <= 0) { this.onDeath(); return; }
+        if (p.hp <= 0) { this.onDeath(); if (this.state !== 'playing') return; }
         p.isSliding = false; p.height = p.normalHeight; p.width = p.normalWidth;
-        p.x = p.lastSafe.x; p.y = p.lastSafe.y - 6; p.vx = 0; p.vy = 0; p.isKnockedBack = false;
-        if (p.superTimer <= 0) p.invincibleFrames = CONFIG.INVINCIBLE_TIME;
+        p.x = p.lastSafe.x; p.y = p.lastSafe.y - 6; p.vx = 0; p.vy = 0; p.isKnockedBack = false; p.airJumps = 0;
+        if (p.superTimer <= 0) p.invincibleFrames = Math.max(p.invincibleFrames, CONFIG.INVINCIBLE_TIME);
     }
     onDeath() {
         if (this.state !== 'playing') return;
-        this.state = 'dead'; this.deadAnim = 130; audio.stopMusic(); voice.stop(); this.hideToast(); audio.jingle('over');
+        const p = this.player;
+        if (p.tanks > 0) {                                 // 洛克人的能量罐：HP 歸零時自動用掉一個，滿血復活
+            p.tanks--; p.hp = p.maxHp; p.invincibleFrames = 150; p.isKnockedBack = false;
+            this.flash = 0.8; audio.sfx('tank');
+            this.fx.burst(p.x + p.width / 2, p.y + p.height / 2, 24, { color: ['#5EEAD4', '#FFFFFF', '#A7F3D0'], speed: 5, life: 30, size: 4, g: 0, shape: 'ci' });
+            this.banner = { text: '🔋 能量罐！', sub: `滿血復活！還剩 ${p.tanks} 個`, frames: 110, max: 110 };
+            p.say('爸爸給我力量！', 90); this.saveProgress(this.stage);
+            return;
+        }
+        this.state = 'dead'; this.deadAnim = 130; audio.stopMusic(); audio.chargeStop(); voice.stop(); this.hideToast(); audio.jingle('over');
         speak('沒關係，再來一次！'); this.combo = 0;
     }
 
@@ -2121,23 +2365,47 @@ class Game {
         }
         if (this.state === 'paused') return;
         if (this.state === 'win') { this.fx.update(); if (this.t % 4 === 0) this.fx.burst(Math.random() * VIEW_W, -10, 2, { color: ['#FF5E97', '#FFD166', '#4CC9F0', '#06D6A0', '#FFF'], speed: 0.6, life: 130, size: 5, g: 0.06, angle: Math.PI / 2, spread: 0.8 }); return; }
-        if (this.state === 'dead') { this.fx.update(); if (--this.deadAnim <= 0) this.beginStage(this.stage); return; }
+        if (this.state === 'dead') { this.fx.update(); if (--this.deadAnim <= 0) this.beginStage(this.stage, true); return; }
         if (this.state === 'clear') {
-            this.fx.update();
+            this.player.animT++; this.fx.update();
             if (--this.clearAnim <= 0) { if (this.stage < this.maxStage) this.beginStage(this.stage + 1); else this.win(); }
             return;
         }
         this.stepPlaying();
     }
+    collect(it) {                                          // 撿到裝備膠囊／能量罐
+        const p = this.player, E = EQUIP[it.kind];
+        it.dead = true; p.collected.add(it.id);
+        let sub;
+        if (it.kind === 'tank') { p.tanks = Math.min(3, p.tanks + 1); sub = `${E.desc}\n目前有 ${p.tanks} 個`; }
+        else { p.equip.add(it.kind); p.applyEquip(); sub = E.desc + (p.hasSet ? '\n🌟 集齊四件！全套超級裝甲：血量再 +4、變身更久' : ''); }
+        this.banner = { text: `獲得 ${E.icon} ${E.name}！`, sub, frames: 180, max: 180 };
+        this.fx.burst(it.x + 17, it.y + 17, 24, { color: [E.col, '#FFFFFF', '#FFE66D'], speed: 5, life: 34, size: 4, g: 0, shape: 'ci' });
+        audio.jingle('weapon'); this.flash = 0.4; this.shake = 4;
+        speak(`獲得${E.name}！`); p.say('哇！新裝備！', 90);
+        this.saveProgress(this.stage);
+    }
     stepPlaying() {
         const p = this.player, L = this.level;
         p.update(this);
         if (p.y > H + 60) this.onFall();
+        if (this.state !== 'playing') return;
         if (!L.isBossStage && checkAABB(p, L.goal)) { this.stageClear(); return; }
 
         const targetCam = p.x - VIEW_W * 0.35;
         this.cameraX += (targetCam - this.cameraX) * 0.1;
         this.cameraX = clamp(this.cameraX, 0, L.width - VIEW_W);
+
+        for (const f of L.flags) {                          // 檢查點
+            if (!f.on && p.x > f.x) {
+                f.on = true; this.cpX = f.x; audio.sfx('checkpoint');
+                this.fx.text(f.x, 290, '檢查點！', '#FFE66D', 26);
+                this.fx.burst(f.x, 330, 14, { color: ['#FFD400', '#FFFFFF'], speed: 3.4, life: 26, size: 3.5, g: 0.02, shape: 'ci' });
+                p.hp = Math.min(p.maxHp, p.hp + 6);
+            }
+        }
+        for (const it of this.items) { it.update(); if (!it.dead && checkAABB(p, it)) this.collect(it); }
+        this.items = this.items.filter(it => !it.dead);
 
         // 超級Q妹：不斷湧出怪物讓你刷
         if (p.superTimer > 0) {
@@ -2159,9 +2427,11 @@ class Game {
         }
         this.bullets = this.bullets.filter(b => !b.dead);
 
-        // 敵人
+        // 敵人（離畫面太遠的先不動，省效能）
+        const camL = this.cameraX - 320, camR = this.cameraX + VIEW_W + 320;
         for (const e of L.enemies) {
             if (e.dead) continue;
+            if (!e.isBoss && !e.swarm && (e.x > camR || e.x + e.width < camL)) continue;
             e.update(this);
             if (!e.dead && checkAABB(p, e)) {
                 const dir = (p.x + p.width / 2 < e.x + e.width / 2) ? -1 : 1;
@@ -2182,8 +2452,7 @@ class Game {
         }
         this.ebullets = this.ebullets.filter(eb => !eb.dead);
 
-        // 愛心
-        for (const h of this.pickups) {
+        for (const h of this.pickups) {                     // 愛心
             h.update(L.platforms);
             if (!h.dead && checkAABB(p, h)) { h.dead = true; p.hp = Math.min(p.maxHp, p.hp + h.amt); audio.sfx('pickup'); this.fx.text(h.x + 10, h.y - 6, `+${h.amt}`, '#FF7A9C', 22); }
         }
@@ -2210,12 +2479,22 @@ class Game {
     // ---------- 畫面 ----------
     drawGoalGate(ctx) {
         const g = this.level.goal, rx = g.x - this.cameraX, locked = this.level.isBossStage, t = this.t;
+        if (rx < -60 || rx > VIEW_W + 60) return;
         ctx.save();
         ctx.fillStyle = locked ? 'rgba(120,120,140,0.35)' : 'rgba(255,94,151,0.28)'; ctx.fillRect(rx - 6, g.y - 6, g.width + 12, g.height + 12);
         ctx.fillStyle = locked ? 'rgba(120,120,140,0.5)' : `rgba(255,94,151,${0.4 + Math.sin(t * 0.1) * 0.1})`; ctx.fillRect(rx, g.y, g.width, g.height);
         ctx.strokeStyle = locked ? '#8A8A9A' : '#FF5E97'; ctx.lineWidth = 3; ctx.strokeRect(rx, g.y, g.width, g.height);
         ctx.font = `bold 24px ${FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = '#FFF';
         ctx.fillText(locked ? '🔒' : '💖', rx + g.width / 2, g.y + g.height / 2 + 8);
+        ctx.restore();
+    }
+    drawFlag(ctx, f) {                                      // 檢查點旗子
+        const rx = f.x - this.cameraX; if (rx < -40 || rx > VIEW_W + 40) return;
+        ctx.save();
+        if (f.on) { ctx.fillStyle = 'rgba(255,214,0,0.22)'; circle(ctx, rx, 322, 18 + Math.sin(this.t * 0.1) * 2); }
+        ctx.fillStyle = '#8B8FA3'; ctx.fillRect(rx - 2, 312, 4, 70);
+        ctx.fillStyle = f.on ? '#FFD400' : '#7A7F96'; const w = f.on ? Math.sin(this.t * 0.15) * 3 : 0;
+        ctx.beginPath(); ctx.moveTo(rx + 2, 314); ctx.lineTo(rx + 32 + w, 324); ctx.lineTo(rx + 2, 336); ctx.fill();
         ctx.restore();
     }
     drawWorld(ctx) {
@@ -2226,9 +2505,11 @@ class Game {
             if (rx + p.width < -30 || rx > VIEW_W + 30 || p.y === 0) continue;
             drawPlatform(ctx, p, rx, p.y >= 380 ? p.height + this.worldShift + 20 : p.height, th, cam);
         }
+        for (const f of this.flags) this.drawFlag(ctx, f);
         this.drawGoalGate(ctx);
         for (const h of this.pickups) h.draw(ctx, cam);
-        for (const e of L.enemies) e.draw(ctx, cam);
+        for (const it of this.items) it.draw(ctx, cam);
+        for (const e of L.enemies) { if (e.x + e.width < cam - 90 || e.x > cam + VIEW_W + 90) continue; e.draw(ctx, cam); }
         for (const eb of this.ebullets) eb.draw(ctx, cam);
         for (const b of this.bullets) b.draw(ctx, cam);
         this.player.draw(ctx, cam);
@@ -2238,14 +2519,14 @@ class Game {
         const cam = this.t * 0.9, p = this.player;
         BG[1](ctx, cam, this.t);
         drawPlatform(ctx, { x: 0, y: 380, width: VIEW_W + 60, height: 70 }, -20, 70 + this.worldShift + 20, LEVELS[1].plat, cam);
-        p.x = cam + VIEW_W * 0.3; p.y = 332; p.facing = 1; p.walkTimer = this.t; p.isGrounded = true; p.superTimer = 0; p.chargeFrames = 0; p.invincibleFrames = 0;
+        p.x = cam + VIEW_W * 0.3; p.y = 332; p.facing = 1; p.walkTimer = this.t; p.animT = this.t; p.cheer = false; p.hurtT = 0; p.spinT = 0; p.landT = 0; p.isGrounded = true; p.superTimer = 0; p.chargeFrames = 0; p.invincibleFrames = 0;
         p.draw(ctx, cam);
         this.fx.draw(ctx, cam);
     }
     drawWinScene(ctx) {
         BG[1](ctx, this.t * 0.4, this.t);
         drawPlatform(ctx, { x: 0, y: 380, width: VIEW_W + 60, height: 70 }, -20, 70 + this.worldShift + 20, LEVELS[1].plat, 0);
-        const p = this.player; p.x = VIEW_W * 0.42; p.y = 332; p.facing = 1; p.isGrounded = true; p.superTimer = 0; p.chargeFrames = 0; p.invincibleFrames = 0; p.walkTimer = this.t; p.draw(ctx, 0);
+        const p = this.player; p.x = VIEW_W * 0.42; p.y = 332; p.facing = 1; p.isGrounded = true; p.superTimer = 0; p.chargeFrames = 0; p.invincibleFrames = 0; p.walkTimer = 0; p.animT = this.t; p.cheer = true; p.draw(ctx, 0);
         drawDad(ctx, VIEW_W * 0.42 + 76, 380, this.t);
         this.fx.draw(ctx, 0);
     }
@@ -2253,27 +2534,40 @@ class Game {
         const p = this.player, wp = WEAPON_TYPES[p.currentWeapon], L = this.level, sup = p.superTimer > 0;
         ctx.save(); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.lineJoin = 'round';
         const line = (text, y, color, size, x = 62) => { ctx.font = `800 ${size}px ${FONT}`; ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(0,0,0,0.65)'; ctx.strokeText(text, x, y); ctx.fillStyle = color; ctx.fillText(text, x, y); };
-        line(`STAGE ${this.stage}/${this.maxStage}`, 34, '#FFF', 24);
-        line(L.name, 62, '#FFE66D', 22);
-        line(`${wp.icon} ${wp.short}`, 90, sup ? '#FFD400' : wp.dress, 22);
+        // 關卡變長了：上方進度條（旗子＝檢查點）
+        const bx = 64, bw = Math.max(80, VIEW_W - 150), goalX = L.isBossStage ? L.runEnd : L.width - 120, pf = clamp(p.x / goalX, 0, 1);
+        ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(bx, 4, bw, 9);
+        ctx.fillStyle = '#FFE66D'; ctx.fillRect(bx, 4, bw * pf, 9);
+        for (const f of L.flags) { ctx.fillStyle = f.on ? '#FFD400' : '#AAB0C0'; ctx.fillRect(bx + bw * clamp(f.x / goalX, 0, 1) - 1, 1, 3, 15); }
+        ctx.fillStyle = '#FF5E97'; circle(ctx, bx + bw * pf, 8.5, 6);
+        ctx.font = `15px ${FONT}`; ctx.fillStyle = '#FFF'; ctx.fillText(L.isBossStage ? '👹' : '🏁', bx + bw + 6, 15);
+
+        line(`STAGE ${this.stage}/${this.maxStage}`, 40, '#FFF', 24);
+        line(L.name, 68, '#FFE66D', 22);
+        line(`${wp.icon} ${wp.short}`, 96, sup ? '#FFD400' : wp.dress, 22);
         p.unlockedWeapons.forEach((w, i) => {                // 已拿到的武器列
-            const x = 62 + i * 40, y = 100, cur = w === p.currentWeapon;
+            const x = 62 + i * 40, y = 106, cur = w === p.currentWeapon;
             ctx.fillStyle = cur ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)'; ctx.beginPath(); ctx.roundRect(x, y, 34, 30, 8); ctx.fill();
             if (cur) { ctx.strokeStyle = '#FFE66D'; ctx.lineWidth = 2.5; ctx.stroke(); }
             ctx.font = `20px ${FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = '#FFF'; ctx.fillText(WEAPON_TYPES[w].icon, x + 17, y + 23); ctx.textAlign = 'left';
         });
-        const barX = 25, barY = 20, uw = 20, uh = 4, sp = 1.5;   // 血條
+        const barX = 25, barY = 24, uw = 20, uh = 4, sp = 1.5;   // 血條
         ctx.fillStyle = '#000'; ctx.fillRect(barX - 3, barY - 3, uw + 6, (uh + sp) * p.maxHp + 6);
         for (let i = 0; i < p.maxHp; i++) {
             ctx.fillStyle = i < p.hp ? (p.hp <= 6 ? '#FF4757' : sup ? '#FFD400' : wp.dress) : '#333';
             ctx.fillRect(barX, barY + (p.maxHp - 1 - i) * (uh + sp), uw, uh);
         }
-        let y = 148;
+        // 裝備列（沒拿到的暗暗的，看得出還缺哪件）與能量罐
+        let ex = 62; ctx.font = `19px ${FONT}`;
+        for (const k of ['BOOTS', 'ARMOR', 'GLOVES', 'HELMET']) { ctx.globalAlpha = p.equip.has(k) ? 1 : 0.28; ctx.fillStyle = '#FFF'; ctx.fillText(EQUIP[k].icon, ex, 158); ex += 27; }
+        ctx.globalAlpha = 1;
+        if (p.tanks > 0) line(`🔋×${p.tanks}`, 158, '#5EEAD4', 18, ex + 4);
+        let y = 184;
         if (p.chargeFrames > 8 && !sup) {                    // 集氣條：看得到什麼時候能放大招
-            const f = Math.min(1, p.chargeFrames / CONFIG.CHARGE_LV2_TIME), full = f >= 1;
+            const f = Math.min(1, p.chargeFrames / p.lv2T), full = f >= 1;
             ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(62, y - 12, 150, 16);
             ctx.fillStyle = full ? (this.t % 6 < 3 ? '#FFF' : CHARGE_COLORS[p.currentWeapon][1]) : CHARGE_COLORS[p.currentWeapon][0]; ctx.fillRect(64, y - 10, 146 * f, 12);
-            ctx.fillStyle = '#FFF'; ctx.fillRect(64 + 146 * (CONFIG.CHARGE_LV1_TIME / CONFIG.CHARGE_LV2_TIME), y - 12, 2, 16);
+            ctx.fillStyle = '#FFF'; ctx.fillRect(64 + 146 * (p.lv1T / p.lv2T), y - 12, 2, 16);
             line(full ? '大招！放開！' : '集氣中', y + 20, '#FFF', 16); y += 30;
         }
         const b = this.boss;
@@ -2287,7 +2581,7 @@ class Game {
             const tw = Math.min(VIEW_W - 90, 300);
             line(`⚡ 超級Q妹  擊倒 ${this.superKills}`, y + 14, '#FFE066', 20);
             ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(62, y + 20, tw, 12);
-            ctx.fillStyle = '#FFD400'; ctx.fillRect(64, y + 22, (tw - 4) * (p.superTimer / SUPER_TIME), 8);
+            ctx.fillStyle = '#FFD400'; ctx.fillRect(64, y + 22, (tw - 4) * (p.superTimer / p.superTotal), 8);
         }
         ctx.restore();
     }
