@@ -128,9 +128,12 @@
         .mic-btn.listening { background: #ff4757; color: #fff; animation: pulseGlow 0.5s infinite alternate; }
         .mic-btn.cool { opacity: 0.55; }
         .mic-btn.super { background: linear-gradient(#fff7ae, #ffd400); box-shadow: 0 0 18px #ffd400; }
+        /* 提示框：原本用 left:50%+translateX(-50%)，絕對定位的「縮到內容寬」只能用剩下的一半螢幕，
+           長句子在手機上會被擠成細細一條直的（實機才看得出來）。改成 left/right:0 + margin:auto。 */
         #voice-toast {
-            position: absolute; left: 50%; top: 104px; transform: translateX(-50%); z-index: 30;
-            font-size: 24px; font-weight: 900; line-height: 1.4; text-align: center; max-width: 92vw;
+            position: absolute; left: 0; right: 0; top: 104px; margin: 0 auto; z-index: 30;
+            width: fit-content; max-width: min(92vw, 560px);
+            font-size: clamp(17px, 4.6vw, 24px); font-weight: 900; line-height: 1.4; text-align: center;
             padding: 10px 22px; border-radius: 30px; background: rgba(0, 0, 0, 0.76); border: 3px solid #ffd166;
             text-shadow: 0 2px 4px #000; pointer-events: none; white-space: pre-line;
         }
@@ -164,6 +167,10 @@
         .diff-btn.on { background: linear-gradient(#ffd45a, #ff9f1c); border-color: #fff3b0; color: #3b2400; box-shadow: 0 0 14px rgba(255, 209, 102, 0.85); }
         .diff-btn:active { transform: translateY(2px); }
         .diff-tip { font-size: clamp(16px, 2.4vw, 20px); line-height: 1.5; text-shadow: 0 2px 6px #000; max-width: 92vw; }
+        .inapp-hint {
+            font-size: clamp(15px, 3.4vw, 19px); font-weight: 800; line-height: 1.5; color: #fff3b0; max-width: 92vw;
+            padding: 8px 14px; border-radius: 14px; background: rgba(0, 0, 0, 0.6); border: 2px solid #ffd166;
+        }
         /* 螢幕很矮（手機橫放）時整個選單縮一點，不然按鈕會被切掉 */
         @media (max-height: 470px) {
             .screen { gap: 7px; padding: 8px; justify-content: flex-start; }   /* 置中＋內容過高會上下都被切掉，改成從上面排起 */
@@ -225,6 +232,7 @@
     </div>
 
     <div class="screen hidden" id="screen-title">
+        <div class="inapp-hint hidden" id="inapp-hint">⚠️ 你正在 LINE／FB 的內建瀏覽器裡<br>聲音可能被擋掉，建議右上角「⋯」→「用瀏覽器開啟」</div>
         <div class="title-sub">洛克人式熱血動作遊戲</div>
         <div class="title-main">Q妹救爸記</div>
         <div class="title-lyric" id="lyric">♪ 爸爸好帥～～ ♪</div>
@@ -2234,9 +2242,9 @@ class Game {
                 if (screen.orientation && screen.orientation.lock) { await screen.orientation.lock('landscape'); locked = true; }
             } catch (e) { /* 這支手機不能鎖，改用假橫向 */ }
             if (locked) { this.toast('已切換成橫向！', 1400); return; }
-            this.setRot(90); this.toast('請把手機向左倒（螢幕右邊朝上）\n再按一次可換成向右倒', 3400); return;
+            this.setRot(90); this.toast('把手機向左倒著玩\n再按一次換方向', 2800); return;
         }
-        if (this.rot === 90) { this.setRot(-90); this.toast('請把手機向右倒（螢幕左邊朝上）\n再按一次恢復直立', 3400); }
+        if (this.rot === 90) { this.setRot(-90); this.toast('把手機向右倒著玩\n再按一次回直立', 2800); }
         else if (this.rot === -90) { this.setRot(0); this.toast('已恢復直立', 1400); }
         else { try { if (document.fullscreenElement) await document.exitFullscreen(); if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {} }
     }
@@ -2266,9 +2274,13 @@ class Game {
         audio.unlock(); audio.playMusic('title');
         this.state = 'title'; this.setScreen('title'); this.singT = 0;
         setTimeout(() => { if (this.state === 'title') sing(); }, 900);
-        if (IN_APP_BROWSER) this.toast('這是 LINE／FB 的內建瀏覽器，聲音常常會被擋掉\n請按右上角「⋯」→「用瀏覽器開啟」再玩', 6000);
+        const hint = document.getElementById('inapp-hint');   // 內建瀏覽器的提醒放在標題畫面上，不用浮動提示框蓋住按鈕
+        if (hint && IN_APP_BROWSER) hint.classList.remove('hidden');
         else setTimeout(() => {                             // 點過畫面還是出不了聲＝這個瀏覽器擋住音訊，講清楚不要讓人以為遊戲壞了
-            if (this.state === 'title' && !audio.muted && (!audio.ctx || audio.ctx.state !== 'running')) this.toast('這個瀏覽器把遊戲聲音擋住了\n改用 Chrome／Safari 開啟就會有聲音', 5000);
+            if (this.state === 'title' && !audio.muted && (!audio.ctx || audio.ctx.state !== 'running') && hint) {
+                hint.innerHTML = '⚠️ 這個瀏覽器把遊戲聲音擋住了<br>改用 Chrome／Safari 開啟就會有聲音';
+                hint.classList.remove('hidden');
+            }
         }, 1200);
     }
     goHome() {
@@ -2411,7 +2423,7 @@ class Game {
     }
     toggleAuto() {
         this.player.autoFire = !this.player.autoFire; Store.set('auto', this.player.autoFire); this.updateAutoBtn();
-        this.toast(this.player.autoFire ? '🎯 自動射擊：開\n面前有敵人就自動開火，按住攻擊鍵仍可集氣' : '🎯 自動射擊：關（手動攻擊）', 2200);
+        this.toast(this.player.autoFire ? '🎯 自動射擊：開\n按住攻擊鍵一樣能集氣' : '🎯 自動射擊：關', 2000);
     }
     updateAutoBtn() {
         const b = document.getElementById('btn-auto'); if (!b) return;
