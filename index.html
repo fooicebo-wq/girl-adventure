@@ -799,7 +799,7 @@ const audio = new AudioEngine();
 // 預錄語音（Windows 內建 zh-TW 語音 Microsoft Yating 錄的）：
 // App 內建瀏覽器（LINE/FB）沒有語音引擎，講話全靜音，所以改成自己播音檔；
 // 抓不到 voice/ 資料夾時會自動退回瀏覽器語音，遊戲照樣能玩。
-const VOICE_RATE = 1.18;                      // 播快一點＝童音（原始語音是大人的聲音）
+const VOICE_RATE = 1.0;                       // 童音已經在音檔裡做好了（錄慢＋整段升頻 1.75），播放時不用再加速
 const VOICE = {
     '爸爸好帥！': 'v001',
     '爸爸最帥了！': 'v002',
@@ -1252,7 +1252,7 @@ function sing() {
     if (audio.muted) return;
     if (window.game && window.game.speechTesting) return;   // 正在測語音時不要插嘴，不然測試會被 cancel 掉
     const clip = VOICE['爸爸好帥～～'];                      // 預錄檔用「邊播邊加速」做出往上飄的唱腔
-    if (clip && audio.playVoice(clip, { rate: 1.02, rise: 1.38, vol: 1.3, fallback: ttsSing })) return;
+    if (clip && audio.playVoice(clip, { rate: 1.0, rise: 1.22, vol: 1.3, fallback: ttsSing })) return;
     ttsSing();
 }
 function ttsSing() {
