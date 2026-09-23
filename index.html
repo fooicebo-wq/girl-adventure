@@ -177,6 +177,16 @@
             padding: 10px 18px; border-radius: 30px; border: 3px solid #fff3b0; background: linear-gradient(#ffd45a, #ff9f1c);
         }
         .hint-btn:active { transform: translateY(2px); }
+        /* 測試聲音：不用 .mid-btn，因為電腦橫版會把 .mid-btn 藏起來 */
+        .test-btn {
+            font-family: inherit; font-size: clamp(17px, 3.2vw, 21px); font-weight: 800; color: #fff; cursor: pointer;
+            padding: 8px 20px; border-radius: 30px; border: 2px solid rgba(255, 255, 255, 0.6); background: rgba(0, 0, 0, 0.45);
+        }
+        .test-btn:active { transform: translateY(2px); background: rgba(255, 107, 139, 0.7); }
+        .sound-report {
+            font-size: clamp(15px, 3.2vw, 19px); font-weight: 700; line-height: 1.5; color: #e8f1ff; max-width: 92vw;
+            padding: 8px 14px; border-radius: 12px; background: rgba(0, 0, 0, 0.6); border: 2px solid #5ec8f0; white-space: pre-line;
+        }
         /* 螢幕很矮（手機橫放）時整個選單縮一點，不然按鈕會被切掉 */
         @media (max-height: 470px) {
             .screen { gap: 7px; padding: 8px; justify-content: flex-start; }   /* 置中＋內容過高會上下都被切掉，改成從上面排起 */
@@ -248,6 +258,8 @@
         <button class="big-btn" id="btn-start">▶ 開始遊戲</button>
         <button class="big-btn secondary hidden" id="btn-continue">⏩ 繼續遊戲</button>
         <button class="mid-btn" id="btn-land2">📱 手機轉橫向模式</button>
+        <button class="test-btn" id="btn-soundtest">🔊 測試聲音</button>
+        <div class="sound-report hidden" id="sound-report"></div>
         <div class="diff-row">
             <span class="diff-label">難易度</span>
             <button class="diff-btn" id="btn-diff-easy-t">🟢 簡單</button>
@@ -622,6 +634,25 @@ class AudioEngine {
     }
     _noise(o) { this._noiseAt(this.sfxBus, this.ctx.currentTime + (o.delay || 0), o.dur, o.vol, o.type || 'bandpass', o.f0, o.f1, o.q); }
 
+    // 測試音：直接接 destination，繞過自己的音量／壓縮器，用來判斷「是瀏覽器擋的」還是「我的程式有問題」
+    testTone() {
+        this.unlock();
+        const info = { ctx: this.ctx ? this.ctx.state : 'none', muted: this.muted, played: false };
+        if (!this.ctx) { info.err = '這個瀏覽器沒有 Web Audio'; return info; }
+        info.rate = this.ctx.sampleRate;
+        info.master = this.master ? +this.master.gain.value.toFixed(2) : null;
+        try {
+            const c = this.ctx, t = c.currentTime + 0.05, o = c.createOscillator(), g = c.createGain();
+            o.type = 'square';
+            o.frequency.setValueAtTime(523, t); o.frequency.setValueAtTime(659, t + 0.22); o.frequency.setValueAtTime(784, t + 0.44);
+            g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+            g.gain.setValueAtTime(0.35, t + 0.62); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.72);
+            o.connect(g); g.connect(c.destination);
+            o.start(t); o.stop(t + 0.75);
+            info.played = true;
+        } catch (e) { info.err = String((e && e.message) || e); }
+        return info;
+    }
     chargeUpdate(frames, weapon, lv2T) {            // 每步呼叫：第一次建立聲音，之後只調整音高與音量
         if (this.muted) return;
         if (!this.ctx || this.ctx.state !== 'running') { this.resume(); return; }   // App 內建瀏覽器常常把音訊暫停掉，先叫醒它
@@ -2235,6 +2266,23 @@ class Game {
     }
     setRot(r) { this.rot = r; try { Store.set('rot', 0); } catch (e) {} this.layout(); this.updateLandBtns(); }
     // App 內建瀏覽器逃生門：Android 用 intent:// 直接跳 Chrome；iOS 沒有官方做法，只能教他點分享鍵
+    soundTest() {                                           // 測不到使用者手機的環境，只好讓遊戲自己回報狀態
+        const el = document.getElementById('sound-report'); if (!el) return;
+        el.classList.remove('hidden');
+        el.textContent = '測試中…';
+        const show = () => {
+            const i = audio.testTone();
+            const ok = i.ctx === 'running' && i.played && !i.muted;
+            let msg;
+            if (i.muted) msg = '🔇 遊戲本身被靜音了\n請按遊戲畫面右上角的 🔊 按鈕打開';
+            else if (i.ctx !== 'running') msg = `🚫 這個瀏覽器不讓網頁出聲（狀態：${i.ctx}）\n請改用 Chrome／Safari 開啟`;
+            else if (!i.played) msg = `⚠️ 建立聲音失敗${i.err ? '：' + i.err : ''}\n請改用 Chrome／Safari 開啟`;
+            else msg = '✅ 遊戲已經送出「嗶嗶嗶」三聲\n有聽到＝正常；沒聽到＝手機媒體音量是 0，\n請在按這顆鈕的當下按手機側邊的音量「＋」';
+            el.textContent = msg + `\n(狀態:${i.ctx} 音量:${i.master} ${i.rate || '-'}Hz ${IN_APP_BROWSER ? 'App內建瀏覽器' : '一般瀏覽器'})`;
+        };
+        if (audio.ctx && audio.ctx.state !== 'running') { const p = audio.ctx.resume(); if (p && p.then) { p.then(show).catch(show); return; } }
+        show();
+    }
     intentUrl(raw) { return 'intent://' + raw.split('#')[0].replace(/^https?:\/\//, '') + '#Intent;scheme=https;package=com.android.chrome;end'; }
     openInRealBrowser() {
         const raw = location.href.split('#')[0], tx = document.getElementById('inapp-hint-text');
@@ -2413,6 +2461,8 @@ class Game {
         tap('btn-land', () => this.toggleLandscape()); tap('btn-land2', () => this.toggleLandscape()); tap('btn-land3', () => this.toggleLandscape());
         tap('btn-auto', () => this.toggleAuto());
         tap('btn-open-browser', () => this.openInRealBrowser());
+        tap('btn-soundtest', () => this.soundTest());
+        document.addEventListener('pointerdown', () => audio.unlock(), true);   // 每一次觸碰都再試著解鎖音訊：webview 常常第一次解不開
         for (const k of ['EASY', 'NORMAL', 'HARD']) for (const s of ['t', 'p']) tap(`btn-diff-${k.toLowerCase()}-${s}`, () => this.setDifficulty(k));
         window.addEventListener('resize', () => this.layout());
         window.addEventListener('orientationchange', () => setTimeout(() => this.layout(), 250));
