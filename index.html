@@ -732,14 +732,24 @@ class AudioEngine {
 const audio = new AudioEngine();
 
 // 語音彩蛋（爸爸好帥！）：靜音時不說話
+function pickVoice() {                          // 有中文聲音就用中文的；沒有就交給瀏覽器預設，不要硬指定造成不出聲
+    try {
+        const vs = window.speechSynthesis.getVoices() || [];
+        if (!vs.length) return null;
+        return vs.find(v => /^zh[-_]?(TW|HK|Hant)/i.test(v.lang)) || vs.find(v => /^zh/i.test(v.lang)) || null;
+    } catch (e) { return null; }
+}
 function speak(text, pitch = 1.6, rate = 1.15) {
-    if (audio.muted || document.hidden || voice.listening) return;   // 麥克風開著時不說話，避免聽到自己
+    if (audio.muted || voice.listening) return;   // 麥克風開著時不說話，避免聽到自己
+    // 註：原本這裡還擋 document.hidden，但有些 App 內建瀏覽器會一直回報 hidden=true，
+    //     結果音樂有、講話全沒有。畫面被切走時遊戲本來就會暫停，不需要這道保險。
     if ('speechSynthesis' in window && 'SpeechSynthesisUtterance' in window) {
         try {
             audio.duck(Math.min(3, 0.6 + text.length * 0.18));
             window.speechSynthesis.cancel();
             const u = new SpeechSynthesisUtterance(text);
             u.lang = 'zh-TW'; u.pitch = pitch; u.rate = rate;
+            const v = pickVoice(); if (v) u.voice = v;
             window.speechSynthesis.speak(u);
         } catch (e) { /* 沒有語音就算了 */ }
     }
@@ -1087,10 +1097,13 @@ const voice = new Voice();
 // 開場唱「爸爸好帥～～」：瀏覽器的語音合成沒辦法真的唱歌，用「拉長、拉高音」的方式念出來，音樂會暫時壓低
 function sing() {
     if (audio.muted || !('speechSynthesis' in window)) return;
+    if (window.game && window.game.speechTesting) return;   // 正在測語音時不要插嘴，不然測試會被 cancel 掉
     try {
         speechSynthesis.cancel(); audio.duck(3.6);
         [['爸爸', 1.5, 0.75], ['好帥', 1.9, 0.55], ['帥～', 2.0, 0.38]].forEach(([t, p, r]) => {
-            const u = new SpeechSynthesisUtterance(t); u.lang = 'zh-TW'; u.pitch = p; u.rate = r; speechSynthesis.speak(u);
+            const u = new SpeechSynthesisUtterance(t); u.lang = 'zh-TW'; u.pitch = p; u.rate = r;
+            const v = pickVoice(); if (v) u.voice = v;
+            speechSynthesis.speak(u);
         });
     } catch (e) { /* 沒有語音就只有音樂 */ }
 }
@@ -2266,6 +2279,27 @@ class Game {
     }
     setRot(r) { this.rot = r; try { Store.set('rot', 0); } catch (e) {} this.layout(); this.updateLandBtns(); }
     // App 內建瀏覽器逃生門：Android 用 intent:// 直接跳 Chrome；iOS 沒有官方做法，只能教他點分享鍵
+    speechTest(cb) {
+        const r = { has: ('speechSynthesis' in window) && ('SpeechSynthesisUtterance' in window), voices: 0, zh: false, started: false, err: null, hidden: !!document.hidden };
+        if (!r.has) return cb(r);
+        this.speechTesting = true;
+        const done = () => { this.speechTesting = false; if (r.started && (r.err === 'interrupted' || r.err === 'canceled')) r.err = null; cb(r); };
+        const run = () => {
+            try {
+                const vs = window.speechSynthesis.getVoices() || [];
+                r.voices = vs.length; r.zh = vs.some(v => /^zh/i.test(v.lang));
+                const u = new SpeechSynthesisUtterance('爸爸好帥');
+                u.lang = 'zh-TW'; u.pitch = 1.6; u.rate = 1.05;
+                const v = pickVoice(); if (v) u.voice = v;
+                u.onstart = () => { r.started = true; };
+                u.onerror = (e) => { r.err = (e && e.error) || 'error'; };
+                window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
+            } catch (e) { r.err = String((e && e.message) || e); }
+            setTimeout(done, 1600);
+        };
+        // 有些瀏覽器語音清單是非同步載入的，先給它一點時間
+        if (!(window.speechSynthesis.getVoices() || []).length) setTimeout(run, 400); else run();
+    }
     soundTest() {                                           // 測不到使用者手機的環境，只好讓遊戲自己回報狀態
         const el = document.getElementById('sound-report'); if (!el) return;
         el.classList.remove('hidden');
@@ -2278,7 +2312,17 @@ class Game {
             else if (i.ctx !== 'running') msg = `🚫 這個瀏覽器不讓網頁出聲（狀態：${i.ctx}）\n請改用 Chrome／Safari 開啟`;
             else if (!i.played) msg = `⚠️ 建立聲音失敗${i.err ? '：' + i.err : ''}\n請改用 Chrome／Safari 開啟`;
             else msg = '✅ 遊戲已經送出「嗶嗶嗶」三聲\n有聽到＝正常；沒聽到＝手機媒體音量是 0，\n請在按這顆鈕的當下按手機側邊的音量「＋」';
-            el.textContent = msg + `\n(狀態:${i.ctx} 音量:${i.master} ${i.rate || '-'}Hz ${IN_APP_BROWSER ? 'App內建瀏覽器' : '一般瀏覽器'})`;
+            const base = msg + `\n(狀態:${i.ctx} 音量:${i.master} ${i.rate || '-'}Hz ${IN_APP_BROWSER ? 'App內建瀏覽器' : '一般瀏覽器'})`;
+            el.textContent = base + '\n\n🗣 講話測試中…';
+            this.speechTest((s) => {                         // 音樂與講話是兩套系統，分開報
+                let sm;
+                if (!s.has) sm = '🗣 這個瀏覽器沒有語音功能（講話不會出聲）\n→ 用 Chrome 開啟就會講話';
+                else if (s.err) sm = `🗣 語音失敗：${s.err}\n→ 用 Chrome 開啟試試`;
+                else if (!s.voices) sm = '🗣 手機裡沒有安裝語音（0 個聲音）\n→ Android：安裝／開啟「Google 文字轉語音」';
+                else if (!s.started) sm = '🗣 有語音但沒能發聲（可能被瀏覽器擋）\n→ 用 Chrome 開啟試試';
+                else sm = s.zh ? '🗣 已經唸出「爸爸好帥」，有聽到就正常' : '🗣 已發聲，但手機沒有中文聲音，唸起來會怪怪的\n→ Android：語音設定裡加裝中文';
+                el.textContent = base + '\n\n' + sm + `\n(語音:${s.voices}個 中文:${s.zh ? '有' : '無'} hidden:${s.hidden})`;
+            });
         };
         if (audio.ctx && audio.ctx.state !== 'running') { const p = audio.ctx.resume(); if (p && p.then) { p.then(show).catch(show); return; } }
         show();
