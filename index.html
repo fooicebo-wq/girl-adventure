@@ -152,6 +152,38 @@
         body:not(.portrait):not(.rot) #btn-land, body:not(.portrait):not(.rot) .mid-btn { display: none; }
         #btn-auto.on { background: rgba(6, 214, 160, 0.65); border-color: #b8ffe8; }
         .btn-dir-pad.flick, #d-pad.flick { filter: drop-shadow(0 0 10px #FFE66D); }
+
+        /* ---------- 難易度選擇（標題畫面與暫停畫面各一排） ---------- */
+        .screen { overflow-y: auto; }
+        .diff-row { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; max-width: 94vw; }
+        .diff-label { width: 100%; font-size: clamp(17px, 2.6vw, 22px); font-weight: 900; color: #ffe66d; text-shadow: 0 2px 6px #000; }
+        .diff-btn {
+            font-family: inherit; font-size: clamp(18px, 3vw, 24px); font-weight: 900; color: #fff; cursor: pointer;
+            padding: 8px 14px; border-radius: 28px; border: 3px solid rgba(255, 255, 255, 0.45); background: rgba(0, 0, 0, 0.5);
+        }
+        .diff-btn.on { background: linear-gradient(#ffd45a, #ff9f1c); border-color: #fff3b0; color: #3b2400; box-shadow: 0 0 14px rgba(255, 209, 102, 0.85); }
+        .diff-btn:active { transform: translateY(2px); }
+        .diff-tip { font-size: clamp(16px, 2.4vw, 20px); line-height: 1.5; text-shadow: 0 2px 6px #000; max-width: 92vw; }
+        /* 螢幕很矮（手機橫放）時整個選單縮一點，不然按鈕會被切掉 */
+        @media (max-height: 470px) {
+            .screen { gap: 7px; padding: 8px; justify-content: flex-start; }   /* 置中＋內容過高會上下都被切掉，改成從上面排起 */
+            .title-tip { font-size: clamp(15px, 2.4vw, 19px); }
+            .title-keys { font-size: 13px; line-height: 1.45; }
+            .title-main { font-size: clamp(26px, 6vw, 40px); }
+            .title-main.small { font-size: clamp(22px, 5vw, 32px); }
+            .title-sub { font-size: clamp(15px, 2.6vw, 20px); }
+            .title-lyric { font-size: clamp(20px, 4vw, 30px); }
+            .big-btn { padding: 7px 26px; font-size: clamp(17px, 3vw, 23px); }
+            .mid-btn { padding: 5px 16px; font-size: clamp(15px, 2.6vw, 19px); }
+            .diff-btn { padding: 5px 14px; font-size: clamp(16px, 2.6vw, 20px); }
+        }
+        body.rot .screen { gap: 7px; padding: 8px; justify-content: flex-start; }
+        body.rot .title-tip { font-size: clamp(15px, 2.4vw, 19px); }
+        body.rot .title-main { font-size: clamp(26px, 6vw, 40px); }
+        body.rot .title-main.small { font-size: clamp(22px, 5vw, 32px); }
+        body.rot .title-lyric { font-size: clamp(20px, 4vw, 30px); }
+        body.rot .big-btn { padding: 7px 26px; font-size: clamp(17px, 3vw, 23px); }
+        body.rot .diff-btn { padding: 5px 14px; font-size: clamp(16px, 2.6vw, 20px); }
     </style>
 </head>
 <body>
@@ -199,8 +231,15 @@
         <button class="big-btn" id="btn-start">▶ 開始遊戲</button>
         <button class="big-btn secondary hidden" id="btn-continue">⏩ 繼續遊戲</button>
         <button class="mid-btn" id="btn-land2">📱 手機轉橫向模式</button>
+        <div class="diff-row">
+            <span class="diff-label">難易度</span>
+            <button class="diff-btn" id="btn-diff-easy-t">🟢 簡單</button>
+            <button class="diff-btn" id="btn-diff-normal-t">🟡 普通</button>
+            <button class="diff-btn" id="btn-diff-hard-t">🔴 困難</button>
+        </div>
+        <div class="diff-tip" id="diff-tip-t"></div>
         <div class="title-tip">遊戲中對手機說「爸爸好帥」<br>變身超級Q妹（還能飛！），怪物也會大量出現！</div>
-        <div class="title-keys kbd-only">電腦操作：← → 移動　K／空白鍵 跳（空中再按＝二段跳）　J／Z 攻擊（按住集氣）<br>L／X 滑行　E 換武器　T 自動射擊　V 說話變身　P 暫停</div>
+        <div class="title-keys kbd-only">電腦操作：← → 移動　K／空白鍵 跳（空中再按＝二段跳）　J／Z 攻擊（按住集氣）<br>L／X 滑行　E 換武器　T 自動射擊　V 說話變身　P 暫停　1／2／3 難易度</div>
     </div>
 
     <div class="screen hidden" id="screen-win" style="justify-content:flex-start; padding-top:14vh;">
@@ -215,6 +254,13 @@
         <button class="big-btn" id="btn-resume">▶ 繼續</button>
         <button class="big-btn secondary" id="btn-restart">↺ 重玩本關</button>
         <button class="big-btn secondary" id="btn-home">🏠 回標題</button>
+        <div class="diff-row">
+            <span class="diff-label">難易度</span>
+            <button class="diff-btn" id="btn-diff-easy-p">🟢 簡單</button>
+            <button class="diff-btn" id="btn-diff-normal-p">🟡 普通</button>
+            <button class="diff-btn" id="btn-diff-hard-p">🔴 困難</button>
+        </div>
+        <div class="diff-tip" id="diff-tip-p"></div>
         <button class="mid-btn" id="btn-land3">📱 橫向模式</button>
     </div>
 </div>
@@ -280,6 +326,20 @@ const Store = {
     get(k, d) { try { const v = localStorage.getItem('qgirl.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem('qgirl.' + k, JSON.stringify(v)); } catch (e) { /* 存不了就算了 */ } }
 };
+
+// ==========================================
+// 1-b. 難易度：普通＝原本調好的數值，簡單／困難是乘上去的係數
+//      標題畫面與暫停畫面都能切換，會存起來；戰鬥中切換也馬上生效
+// ==========================================
+const DIFFS = {
+    EASY: { key: 'EASY', name: '簡單', icon: '🟢', tip: 'Boss 血量剩一半、攻擊變弱，Q妹血量上限 +8', bossHp: 0.55, bossDmg: 0.55, bossFast: 0.4, foeHp: 0.7, foeDmg: 0.55, hpBonus: 8 },
+    NORMAL: { key: 'NORMAL', name: '普通', icon: '🟡', tip: '原本的難度', bossHp: 1, bossDmg: 1, bossFast: 1, foeHp: 1, foeDmg: 1, hpBonus: 0 },
+    HARD: { key: 'HARD', name: '困難', icon: '🔴', tip: 'Boss 更硬更痛、招式更快，小怪也變強', bossHp: 1.35, bossDmg: 1.3, bossFast: 1.5, foeHp: 1.25, foeDmg: 1.3, hpBonus: 0 }
+};
+let DIFF_KEY = 'NORMAL';
+let D = DIFFS.NORMAL;                         // 現在生效的難易度：Boss／敵人生出來時會讀，玩家血量上限也會讀
+function setDiff(k) { if (!DIFFS[k]) k = 'NORMAL'; DIFF_KEY = k; D = DIFFS[k]; Store.set('diff', k); }
+setDiff(Store.get('diff', 'NORMAL'));
 
 // ==========================================
 // 2. 音樂與音效（Web Audio 即時合成 8-bit 風格，不需任何音檔）
@@ -1000,8 +1060,8 @@ class Enemy {
     constructor(kind, x, y, o = {}) {
         const d = ENEMY_DEFS[kind];
         this.kind = kind; this.isBoss = false; this.width = d.w; this.height = d.h; this.x = x; this.y = y;
-        this.maxHp = this.hp = Math.max(1, Math.round(d.hp * (o.hpMul || 1)));
-        this.dmg = d.dmg; this.speed = d.speed; this.weak = o.weak || d.weak; this.fly = !!d.fly;
+        this.maxHp = this.hp = Math.max(1, Math.round(d.hp * (o.hpMul || 1) * D.foeHp));
+        this.dmg = Math.max(1, Math.round(d.dmg * D.foeDmg)); this.speed = d.speed; this.weak = o.weak || d.weak; this.fly = !!d.fly;
         this.pal = o.pal || ['#4ADE80', '#166534', '#BBF7D0']; this.skin = o.skin || 'a';
         this.vx = 0; this.vy = 0; this.dir = -1; this.timer = (Math.random() * 90) | 0; this.state = 'idle'; this.st = 0; this.aim = 0;
         this.seg = o.seg || [0, 1e9];
@@ -1190,10 +1250,10 @@ class Enemy {
 // 10. 四大 Boss：各有招式、預警與外型；弱點武器傷害 ×2
 // ==========================================
 const BOSS_DEFS = {
-    FIRE_BOSS: { name: '烈焰巨怪', w: 76, h: 76, hp: 80, weak: null, tip: '' },
-    ICE_BOSS: { name: '極凍雪魔', w: 80, h: 80, hp: 180, weak: 'FIRE', tip: '🔥 怕火' },
-    THUNDER_BOSS: { name: '轟雷魔像', w: 84, h: 84, hp: 220, weak: 'ICE', tip: '❄️ 怕冰' },
-    FINAL_BOSS: { name: '終極暗黑魔王', w: 92, h: 92, hp: 300, weak: 'THUNDER', tip: '⚡ 怕雷' }
+    FIRE_BOSS: { name: '烈焰巨怪', w: 76, h: 76, hp: 70, weak: null, tip: '' },
+    ICE_BOSS: { name: '極凍雪魔', w: 80, h: 80, hp: 150, weak: 'FIRE', tip: '🔥 怕火' },
+    THUNDER_BOSS: { name: '轟雷魔像', w: 84, h: 84, hp: 180, weak: 'ICE', tip: '❄️ 怕冰' },
+    FINAL_BOSS: { name: '終極暗黑魔王', w: 92, h: 92, hp: 220, weak: 'THUNDER', tip: '⚡ 怕雷' }
 };
 const BOSS_SEQ = {
     FIRE_BOSS: ['walk', 'lob', 'stomp', 'walk', 'lob', 'rain', 'stomp'],
@@ -1203,14 +1263,14 @@ const BOSS_SEQ = {
 };
 const RAIN_COL = { FIRE_BOSS: '#FF6B35', ICE_BOSS: '#8ECAE6', THUNDER_BOSS: '#FFE66D', FINAL_BOSS: '#C77DFF' };
 // 武器打 Boss 的傷害係數：特殊武器單發是水壺的 3 倍、打到弱點再 x2，不壓低的話 Boss 血量再多也是秒殺
-const BOSS_W = { NORMAL: 1, FIRE: 0.47, ICE: 0.47, THUNDER: 0.5, SUPER: 0.12 };
+const BOSS_W = { NORMAL: 1, FIRE: 0.55, ICE: 0.55, THUNDER: 0.62, SUPER: 0.14 };
 
 class Boss {
     constructor(type, x, y, arenaL, arenaR) {
         const d = BOSS_DEFS[type];
         this.type = type; this.kind = 'BOSS'; this.isBoss = true; this.name = d.name; this.tip = d.tip;
-        this.width = d.w; this.height = d.h; this.x = x; this.y = y; this.maxHp = this.hp = d.hp; this.weak = d.weak;
-        this.dmg = 5; this.vx = 0; this.vy = 0; this.dir = -1; this.timer = 0; this.st = 0; this.state = 'walk'; this.seqI = 0;
+        this.width = d.w; this.height = d.h; this.x = x; this.y = y; this.maxHp = this.hp = Math.max(1, Math.round(d.hp * D.bossHp)); this.weak = d.weak;
+        this.dmg = Math.max(1, Math.round(5 * D.bossDmg)); this.vx = 0; this.vy = 0; this.dir = -1; this.timer = 0; this.st = 0; this.state = 'walk'; this.seqI = 0;
         this.arenaL = arenaL; this.arenaR = arenaR; this.aggro = false; this.intro = 80; this.hitFlash = 0; this.dead = false;
         this.onGround = false; this.dashDir = 1; this.jx = 0; this.fired = 0; this.seg = [arenaL, arenaR]; this.phaseSeen = 1;
     }
@@ -1231,8 +1291,8 @@ class Boss {
         this.st++;
         const face = (p.x + p.width / 2 < this.x + this.width / 2) ? -1 : 1, r = this.hp / this.maxHp, phase = r > 0.66 ? 1 : r > 0.33 ? 2 : 3;
         if (phase > this.phaseSeen) { this.phaseSeen = phase; g.onBossEnrage(this, phase); this.state = 'walk'; this.st = 0; return; }   // 換階段：暴怒
-        this.dmg = phase === 3 ? 7 : 6;
-        const bd = phase >= 2 ? 1 : 0, fast = (phase - 1) * 6;   // 後半段：彈幕更痛、每一招更短
+        this.dmg = Math.max(1, Math.round((phase === 3 ? 7 : 6) * D.bossDmg));
+        const bd = phase >= 2 ? 1 : 0, fast = 2 * Math.round((phase - 1) * 3 * D.bossFast);   // 後半段：彈幕更痛、每一招更短（難易度會調整加速幅度；保持偶數，招式內有 fast/2 的整數比對）
         const cx = this.x + this.width / 2, cy = this.y + this.height * 0.45, pcx = p.x + p.width / 2, pcy = p.y + p.height / 2;
         const FINAL = this.type === 'FINAL_BOSS', col = FINAL ? '#9D4EDD' : '#FF6B35';
         const B = (o) => g.ebullets.push(new EBullet(Object.assign({ boss: true }, o)));
@@ -1400,7 +1460,7 @@ class Player {
     get hasSet() { return this.equip.size >= 4; }
     get lv1T() { return this.equip.has('GLOVES') ? 25 : CONFIG.CHARGE_LV1_TIME; }
     get lv2T() { return this.equip.has('GLOVES') ? 56 : CONFIG.CHARGE_LV2_TIME; }
-    calcMaxHp() { return 28 + (this.equip.has('HELMET') ? 4 : 0) + (this.hasSet ? 4 : 0); }
+    calcMaxHp() { return 28 + D.hpBonus + (this.equip.has('HELMET') ? 4 : 0) + (this.hasSet ? 4 : 0); }
     applyEquip() { const old = this.maxHp; this.maxHp = this.calcMaxHp(); this.hp = Math.min(this.maxHp, this.hp + Math.max(0, this.maxHp - old)); }
     reset(x = this.startX, y = this.startY) {
         this.x = x; this.y = y;
@@ -2132,8 +2192,9 @@ class Game {
         this.shake = 0; this.flash = 0; this.banner = null; this.clearAnim = 0; this.deadAnim = 0; this.newWeapon = null;
         this.kills = 0; this.combo = 0; this.comboT = 0; this.superCool = 0; this.superKills = 0; this.swarmT = 0; this.boss = null;
         this.cpX = null; this.items = []; this.flags = []; this.rot = Store.get('rot', 0);
+        this.deaths = {}; this.diffHint = false;              // 同一關一直死就提醒可以調難易度
         this.player.autoFire = !!Store.get('auto', !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches));   // 觸控裝置預設開自動射擊
-        this.layout(); this.loadStage(1); this.bindEvents(); this.refreshMenu(); this.updateMuteBtn(); this.updateAutoBtn();
+        this.layout(); this.loadStage(1); this.bindEvents(); this.refreshMenu(); this.updateMuteBtn(); this.updateAutoBtn(); this.updateDiffBtns();
         this.loop = this.loop.bind(this);
         requestAnimationFrame(this.loop);
     }
@@ -2231,19 +2292,29 @@ class Game {
         this.state = 'playing'; this.setScreen(null); this.showTouch(true); this.hideToast();
         audio.unlock(); audio.resume(); audio.playMusic(this.level.theme.track);
         this.banner = resumed ? { text: '從檢查點繼續！', sub: '', frames: 90, max: 90 } : { text: `STAGE ${n}`, sub: this.level.name + '\n' + this.level.theme.tip, frames: 170, max: 170 };
+        if (this.diffHint) {                                 // 同一關死滿 3 次：提醒可以把難易度調低（從檢查點或從頭重來都會出現）
+            this.diffHint = false;
+            this.banner = { text: '別灰心，再來一次！', sub: '過不了嗎？按 ⏸ 暫停 → 難易度 → 🟢 簡單', frames: 210, max: 210 };
+        }
         this.saveProgress(n); if (!resumed) speak(`第${n}關，${this.level.name.replace(/[【】]/g, '')}`);
     }
     nextStage() {
         if (this.state !== 'playing') return;
         this.player.superTimer = 0;
+        const rw = this.level.reward;                        // 跳關也要補發這關 Boss 的武器，否則後面關卡沒有弱點武器會打不動
+        if (rw && WEAPON_TYPES[rw] && !this.player.unlockedWeapons.includes(rw)) {
+            this.player.unlockWeapon(rw); audio.sfx('select');
+            this.toast(`🎁 跳關補發絕招：${WEAPON_TYPES[rw].icon} ${WEAPON_TYPES[rw].short}`, 2600);
+            speak(`獲得絕招，${WEAPON_TYPES[rw].short}`);
+        }
         if (this.stage < this.maxStage) this.beginStage(this.stage + 1); else this.win();
     }
     pause() {
         if (this.state !== 'playing') return;
-        this.state = 'paused'; this.setScreen('pause'); audio.chargeStop(); this.player.chargeFrames = 0; audio.suspend(); voice.stop(); this.hideToast(); audio.sfx('pause');
+        this.state = 'paused'; this.setScreen('pause'); this.showTouch(false); audio.chargeStop(); this.player.chargeFrames = 0; audio.suspend(); voice.stop(); this.hideToast(); audio.sfx('pause');
         try { speechSynthesis.cancel(); } catch (e) {}
     }
-    resumeGame() { if (this.state !== 'paused') return; this.state = 'playing'; this.setScreen(null); audio.resume(); }
+    resumeGame() { if (this.state !== 'paused') return; this.state = 'playing'; this.setScreen(null); this.showTouch(true); audio.resume(); }
     toggleMute() { audio.setMuted(!audio.muted); this.updateMuteBtn(); if (audio.muted) { try { speechSynthesis.cancel(); } catch (e) {} } }
     updateMuteBtn() { this.muteBtn.textContent = audio.muted ? '🔇' : '🔊'; }
     win() {
@@ -2261,6 +2332,7 @@ class Game {
             if (this.state === 'title' && (e.code === 'Enter' || e.code === 'Space')) { this.newGame(); return; }
             if (e.code === 'KeyP' || e.code === 'Escape') { if (this.state === 'paused') this.resumeGame(); else this.pause(); return; }
             if (e.code === 'KeyM') { this.toggleMute(); return; }
+            if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') { this.setDifficulty(['EASY', 'NORMAL', 'HARD'][+e.code.slice(5) - 1]); return; }
             if (this.state !== 'playing') return;
             if (e.code === 'KeyR') this.beginStage(this.stage);
             else if (e.code === 'KeyN') this.nextStage();
@@ -2284,6 +2356,7 @@ class Game {
         tap('btn-mic', () => this.onMicTap());
         tap('btn-land', () => this.toggleLandscape()); tap('btn-land2', () => this.toggleLandscape()); tap('btn-land3', () => this.toggleLandscape());
         tap('btn-auto', () => this.toggleAuto());
+        for (const k of ['EASY', 'NORMAL', 'HARD']) for (const s of ['t', 'p']) tap(`btn-diff-${k.toLowerCase()}-${s}`, () => this.setDifficulty(k));
         window.addEventListener('resize', () => this.layout());
         window.addEventListener('orientationchange', () => setTimeout(() => this.layout(), 250));
         if (window.visualViewport) window.visualViewport.addEventListener('resize', () => this.layout());
@@ -2294,6 +2367,29 @@ class Game {
         });
     }
 
+    setDifficulty(k) {
+        if (!DIFFS[k]) return;
+        if (k === DIFF_KEY) { this.updateDiffBtns(); return; }
+        const oldHp = D.bossHp;
+        setDiff(k);
+        const r = D.bossHp / oldHp;                          // 打到一半換難易度：場上 Boss 的血量照比例換算，不用重打
+        if (this.level) for (const e of this.level.enemies) if (e.isBoss) {
+            e.maxHp = Math.max(1, Math.round(e.maxHp * r)); e.hp = clamp(Math.round(e.hp * r), 1, e.maxHp);
+        }
+        this.player.applyEquip();                            // 簡單模式血量上限會變多
+        this.updateDiffBtns(); audio.sfx('select');
+        if (this.state !== 'title' && this.state !== 'splash') this.toast(`難易度：${D.icon} ${D.name}`, 1800);   // 暫停畫面下面已經有說明，這裡只報名字，不然提示框會蓋住按鈕
+    }
+    updateDiffBtns() {
+        for (const k of ['EASY', 'NORMAL', 'HARD']) for (const s of ['t', 'p']) {
+            const b = document.getElementById(`btn-diff-${k.toLowerCase()}-${s}`);
+            if (b) b.classList.toggle('on', k === DIFF_KEY);
+        }
+        for (const s of ['t', 'p']) {
+            const el = document.getElementById(`diff-tip-${s}`);
+            if (el) el.textContent = `${D.icon} ${D.name}：${D.tip}`;
+        }
+    }
     toggleAuto() {
         this.player.autoFire = !this.player.autoFire; Store.set('auto', this.player.autoFire); this.updateAutoBtn();
         this.toast(this.player.autoFire ? '🎯 自動射擊：開\n面前有敵人就自動開火，按住攻擊鍵仍可集氣' : '🎯 自動射擊：關（手動攻擊）', 2200);
@@ -2446,6 +2542,8 @@ class Game {
             p.say(pickLine(TANK_LINES), 90); this.saveProgress(this.stage);
             return;
         }
+        const dn = this.deaths[this.stage] = (this.deaths[this.stage] || 0) + 1;
+        this.diffHint = (dn % 3 === 0 && DIFF_KEY !== 'EASY');   // 同一關死滿 3 次：提醒可以把難易度調低
         this.state = 'dead'; this.deadAnim = 130; audio.stopMusic(); audio.chargeStop(); voice.stop(); this.hideToast(); audio.jingle('over');
         speak('沒關係，再來一次！'); this.combo = 0;
     }
@@ -2543,7 +2641,7 @@ class Game {
             eb.update(L.platforms);
             if (!eb.dead && eb.active && checkAABB(p, eb)) {
                 const dir = (p.x + p.width / 2 < eb.x + eb.width / 2) ? -1 : 1;
-                if (p.takeDamage(eb.dmg, dir, !!eb.boss)) { this.shake = Math.max(this.shake, 5); this.combo = 0; }
+                if (p.takeDamage(Math.max(1, Math.round(eb.dmg * (eb.boss ? D.bossDmg : D.foeDmg))), dir, !!eb.boss)) { this.shake = Math.max(this.shake, 5); this.combo = 0; }
                 if (eb.kind === 'ball' || eb.kind === 'shard' || eb.kind === 'orb') eb.dead = true;
             }
         }
