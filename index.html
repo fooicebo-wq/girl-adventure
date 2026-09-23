@@ -320,6 +320,7 @@ const WEAPON_TYPES = {
 
 // LINE／FB／IG 的「App 內建瀏覽器」：聲音常被擋、沒有全螢幕，提醒使用者改用正式瀏覽器開
 const IN_APP_BROWSER = /(Line\/|FBAN|FBAV|FB_IAB|Instagram|MicroMessenger|; wv\))/i.test(navigator.userAgent || '');
+const AUTO_JUMP = /[?&]auto=1/.test(location.search);   // 給 LINE 傳的連結加 ?auto=1：在內建瀏覽器裡會自己跳去 Chrome
 
 function checkAABB(r1, r2) {
     return (
@@ -2391,7 +2392,16 @@ class Game {
         this.state = 'title'; this.setScreen('title'); this.singT = 0;
         setTimeout(() => { if (this.state === 'title') sing(); }, 900);
         const hint = document.getElementById('inapp-hint');   // 內建瀏覽器的提醒放在標題畫面上，不用浮動提示框蓋住按鈕
-        if (hint && IN_APP_BROWSER) hint.classList.remove('hidden');
+        if (hint && IN_APP_BROWSER) {
+            hint.classList.remove('hidden');
+            // ?auto=1 且在 Android 內建瀏覽器：趁這一下「使用者真的點了畫面」自動跳去 Chrome
+            // （跳轉一定要在使用者手勢裡做，載入當下跳常常被擋；跳不掉會留在原地顯示說明）
+            let jumped = false; try { jumped = sessionStorage.getItem('qgirl.jumped') === '1'; } catch (e) {}
+            if (AUTO_JUMP && !jumped && /Android/i.test(navigator.userAgent)) {
+                try { sessionStorage.setItem('qgirl.jumped', '1'); } catch (e) {}
+                this.openInRealBrowser();
+            }
+        }
         else setTimeout(() => {                             // 點過畫面還是出不了聲＝這個瀏覽器擋住音訊，講清楚不要讓人以為遊戲壞了
             if (this.state === 'title' && !audio.muted && (!audio.ctx || audio.ctx.state !== 'running') && hint) {
                 const tx = document.getElementById('inapp-hint-text');
