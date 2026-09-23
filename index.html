@@ -169,8 +169,14 @@
         .diff-tip { font-size: clamp(16px, 2.4vw, 20px); line-height: 1.5; text-shadow: 0 2px 6px #000; max-width: 92vw; }
         .inapp-hint {
             font-size: clamp(15px, 3.4vw, 19px); font-weight: 800; line-height: 1.5; color: #fff3b0; max-width: 92vw;
-            padding: 8px 14px; border-radius: 14px; background: rgba(0, 0, 0, 0.6); border: 2px solid #ffd166;
+            padding: 10px 14px; border-radius: 14px; background: rgba(0, 0, 0, 0.6); border: 2px solid #ffd166;
+            display: flex; flex-direction: column; align-items: center; gap: 8px;
         }
+        .hint-btn {
+            font-family: inherit; font-size: clamp(17px, 4vw, 22px); font-weight: 900; color: #3b2400; cursor: pointer;
+            padding: 10px 18px; border-radius: 30px; border: 3px solid #fff3b0; background: linear-gradient(#ffd45a, #ff9f1c);
+        }
+        .hint-btn:active { transform: translateY(2px); }
         /* 螢幕很矮（手機橫放）時整個選單縮一點，不然按鈕會被切掉 */
         @media (max-height: 470px) {
             .screen { gap: 7px; padding: 8px; justify-content: flex-start; }   /* 置中＋內容過高會上下都被切掉，改成從上面排起 */
@@ -232,7 +238,10 @@
     </div>
 
     <div class="screen hidden" id="screen-title">
-        <div class="inapp-hint hidden" id="inapp-hint">⚠️ 你正在 LINE／FB 的內建瀏覽器裡<br>聲音可能被擋掉，建議右上角「⋯」→「用瀏覽器開啟」</div>
+        <div class="inapp-hint hidden" id="inapp-hint">
+            <div id="inapp-hint-text">⚠️ 你正在 LINE／FB 的內建瀏覽器裡，聲音可能被擋掉</div>
+            <button class="hint-btn" id="btn-open-browser">🌐 一鍵改用瀏覽器開啟</button>
+        </div>
         <div class="title-sub">洛克人式熱血動作遊戲</div>
         <div class="title-main">Q妹救爸記</div>
         <div class="title-lyric" id="lyric">♪ 爸爸好帥～～ ♪</div>
@@ -2225,7 +2234,22 @@ class Game {
         return rot ? [h, w] : [w, h];
     }
     setRot(r) { this.rot = r; try { Store.set('rot', 0); } catch (e) {} this.layout(); this.updateLandBtns(); }
-    updateLandBtns() {                                      // 按鈕字要講出「按下去會發生什麼」，不然側躺時找不到路回來
+    // App 內建瀏覽器逃生門：Android 用 intent:// 直接跳 Chrome；iOS 沒有官方做法，只能教他點分享鍵
+    intentUrl(raw) { return 'intent://' + raw.split('#')[0].replace(/^https?:\/\//, '') + '#Intent;scheme=https;package=com.android.chrome;end'; }
+    openInRealBrowser() {
+        const raw = location.href.split('#')[0], tx = document.getElementById('inapp-hint-text');
+        const teach = (msg) => { if (tx) tx.textContent = msg; };
+        if (/Android/i.test(navigator.userAgent)) {
+            const back = setTimeout(() => teach('這支手機沒有 Chrome？請按右上角「⋯」→「用其他瀏覽器開啟」'), 1500);
+            window.addEventListener('pagehide', () => clearTimeout(back), { once: true });
+            try { location.href = this.intentUrl(raw); }
+            catch (e) { clearTimeout(back); teach('請按右上角「⋯」→「用其他瀏覽器開啟」'); }
+            return;
+        }
+        try { navigator.clipboard && navigator.clipboard.writeText(raw); } catch (e) {}
+        teach('網址已複製！請按下方分享鍵 → 「在 Safari 中打開」');
+    }
+    updateLandBtns() {                                   // 按鈕字要講出「按下去會發生什麼」，不然側躺時找不到路回來
         const on = this.rot !== 0;
         const set = (id, txt) => { const b = document.getElementById(id); if (b) b.textContent = txt; };
         set('btn-land', on ? '📱↺ 回正' : '📱↻');
@@ -2278,7 +2302,8 @@ class Game {
         if (hint && IN_APP_BROWSER) hint.classList.remove('hidden');
         else setTimeout(() => {                             // 點過畫面還是出不了聲＝這個瀏覽器擋住音訊，講清楚不要讓人以為遊戲壞了
             if (this.state === 'title' && !audio.muted && (!audio.ctx || audio.ctx.state !== 'running') && hint) {
-                hint.innerHTML = '⚠️ 這個瀏覽器把遊戲聲音擋住了<br>改用 Chrome／Safari 開啟就會有聲音';
+                const tx = document.getElementById('inapp-hint-text');
+                if (tx) tx.textContent = '⚠️ 這個瀏覽器把遊戲聲音擋住了';
                 hint.classList.remove('hidden');
             }
         }, 1200);
@@ -2387,6 +2412,7 @@ class Game {
         tap('btn-mic', () => this.onMicTap());
         tap('btn-land', () => this.toggleLandscape()); tap('btn-land2', () => this.toggleLandscape()); tap('btn-land3', () => this.toggleLandscape());
         tap('btn-auto', () => this.toggleAuto());
+        tap('btn-open-browser', () => this.openInRealBrowser());
         for (const k of ['EASY', 'NORMAL', 'HARD']) for (const s of ['t', 'p']) tap(`btn-diff-${k.toLowerCase()}-${s}`, () => this.setDifficulty(k));
         window.addEventListener('resize', () => this.layout());
         window.addEventListener('orientationchange', () => setTimeout(() => this.layout(), 250));
