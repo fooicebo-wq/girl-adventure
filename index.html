@@ -1243,7 +1243,58 @@ class Voice {
         rec.onend = () => { this.listening = false; this.rec = null; if (!done && onEnd) onEnd(); };
         try { rec.start(); this.listening = true; this.rec = rec; return true; } catch (e) { return false; }
     }
-    stop() { try { if (this.rec) this.rec.stop(); } catch (e) {} }
+    // 備案：App 內建瀏覽器（LINE/FB）沒有語音辨識，但麥克風通常還在——
+    // 自己聽音量，判斷「有沒有人對著手機喊了一串話」（喊什麼都算，重點是那個梗要留著）
+    async listenShout({ onResult, onEnd, onError }) {
+        if (this.listening) return false;
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+        audio.unlock();
+        const ctx = audio.ctx;
+        if (!ctx) return false;
+        let stream;
+        try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+        catch (e) { this.denied = true; if (onError) onError('not-allowed'); return false; }
+        this.listening = true;
+        audio.duck(3.4);                                     // 音樂壓低，免得喇叭的聲音被自己聽進去
+        let src, an;
+        try {
+            src = ctx.createMediaStreamSource(stream);
+            an = ctx.createAnalyser(); an.fftSize = 512; an.smoothingTimeConstant = 0.25;
+            src.connect(an);
+        } catch (e) {
+            this.listening = false; stream.getTracks().forEach(t => { try { t.stop(); } catch (err) {} });
+            if (onError) onError('audio-capture'); return false;
+        }
+        const buf = new Uint8Array(an.fftSize), t0 = performance.now();
+        let amb = 0, ambN = 0, peaks = 0, loud = 0, above = false, done = false;
+        const finish = (ok) => {
+            if (done) return; done = true;
+            this.listening = false; this.shoutStop = null;
+            try { src.disconnect(); } catch (e) {}
+            stream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
+            if (ok) onResult(); else onEnd();
+        };
+        this.shoutStop = () => finish(false);
+        const tick = () => {
+            if (done) return;
+            an.getByteTimeDomainData(buf);
+            let s = 0;
+            for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; s += v * v; }
+            const rms = Math.sqrt(s / buf.length), el = performance.now() - t0;
+            if (el < 350) { amb += rms; ambN++; }            // 前 0.35 秒先量環境音當基準
+            else {
+                const base = Math.max(0.014, (amb / Math.max(1, ambN)) * 3);
+                if (rms > base) { loud++; if (!above) { above = true; peaks++; } }
+                else if (rms < base * 0.6) above = false;
+                if (peaks >= 3 && loud >= 8) return finish(true);          // 喊到三個音節就算數
+            }
+            if (el > 3200) return finish(peaks >= 2 && loud >= 5);         // 時間到，放寬一點
+            setTimeout(tick, 40);
+        };
+        tick();
+        return true;
+    }
+    stop() { try { if (this.rec) this.rec.stop(); } catch (e) {} if (this.shoutStop) this.shoutStop(); }
 }
 const voice = new Voice();
 
@@ -2498,7 +2549,9 @@ class Game {
                 else if (!s.voices) sm = '🗣 手機裡沒有安裝語音（0 個聲音）\n→ Android：安裝／開啟「Google 文字轉語音」';
                 else if (!s.started) sm = '🗣 有語音但沒能發聲（可能被瀏覽器擋）\n→ 用 Chrome 開啟試試';
                 else sm = s.zh ? '🗣 已經唸出「爸爸好帥」，有聽到就正常' : '🗣 已發聲，但手機沒有中文聲音，唸起來會怪怪的\n→ Android：語音設定裡加裝中文';
-                el.textContent = base + '\n\n' + sm + (s.clip ? `\n(錄音檔 ${s.dur}秒 已下載)` : `\n(語音:${s.voices}個 中文:${s.zh ? '有' : '無'} hidden:${s.hidden})`);
+                const mic = (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) ? '麥克風:可用' : '麥克風:不能用';
+                const sr = voice.SR ? '語音辨識:有' : '語音辨識:無(改用喊聲偵測)';
+                el.textContent = base + '\n\n' + sm + (s.clip ? `\n(錄音檔 ${s.dur}秒 已下載)` : `\n(語音:${s.voices}個 中文:${s.zh ? '有' : '無'} hidden:${s.hidden})`) + `\n(${sr} ${mic})`;
             });
         };
         if (audio.ctx && audio.ctx.state !== 'running') { const p = audio.ctx.resume(); if (p && p.then) { p.then(show).catch(show); return; } }
@@ -2782,8 +2835,16 @@ class Game {
             onEnd: () => { this.micBtn.classList.remove('listening'); if (!handled && this.state === 'playing' && this.player.superTimer <= 0) this.toast('沒聽清楚…再按一次🎤，大聲說「爸爸好帥」', 2400); },
             onError: (err) => { if (err === 'not-allowed' || err === 'service-not-allowed' || err === 'audio-capture' || err === 'network' || err === 'language-not-supported') fallback('這裡用不了麥克風，直接變身！'); }
         });
-        if (ok) { this.micBtn.classList.add('listening'); this.toast('🎤 請大聲說：爸爸好帥！', 0); }
-        else if (!voice.supported) fallback('這個瀏覽器不能語音辨識，直接變身！');
+        if (ok) { this.micBtn.classList.add('listening'); this.toast('🎤 請大聲說：爸爸好帥！', 0); return; }
+        // 沒有語音辨識（LINE／FB 內建瀏覽器都沒有）→ 改成自己聽音量，喊了就算數
+        this.micBtn.classList.add('listening');
+        this.toast('🎤 對著手機大聲喊：爸爸好帥！', 0);
+        voice.listenShout({
+            onResult: () => { handled = true; this.micBtn.classList.remove('listening'); this.hideToast(); this.activateSuper(); },
+            onEnd: () => { this.micBtn.classList.remove('listening'); if (!handled && this.state === 'playing' && this.player.superTimer <= 0) this.toast('沒聽到聲音…再按一次 🎤，大聲一點！', 2400); },
+            onError: () => fallback('這裡用不了麥克風，直接變身！')
+        }).then((started) => { if (!started && !handled) fallback('這裡用不了麥克風，直接變身！'); })
+          .catch(() => { if (!handled) fallback('這裡用不了麥克風，直接變身！'); });
     }
     activateSuper() {
         const p = this.player;
