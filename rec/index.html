@@ -43,10 +43,20 @@
   .g.cur { border-color:var(--gold); }
   .export { margin-top:22px; }
   .export button { width:100%; font-size:24px; padding:18px 10px; }
-  .err { color:#ff9f9f; font-size:17px; font-weight:800; margin-top:12px; }
+  .err { color:#ff9f9f; font-size:17px; font-weight:800; margin-top:12px; line-height:1.6; }
+  .hidden { display:none !important; }
+  .warn { background:rgba(255,94,87,.18); border:3px solid var(--red); border-radius:16px;
+          padding:14px; margin-bottom:14px; font-size:18px; font-weight:800; line-height:1.6; }
+  .warn button { width:100%; font-size:22px; padding:14px 10px; margin-top:12px; }
+  .fix { background:rgba(0,0,0,.35); border-left:5px solid var(--gold); border-radius:10px;
+         padding:12px 14px; margin-top:12px; font-size:17px; line-height:1.8; font-weight:700; color:#ffe9a8; }
 </style>
 </head>
 <body>
+<div class="warn hidden" id="warn">
+  <div id="warn-text">⚠️ 你正在 LINE／FB 的內建瀏覽器裡，<b>這裡不能錄音</b></div>
+  <button id="btn-open">🌐 用 Chrome 開啟（才能錄）</button>
+</div>
 <h1>Q妹救爸記 · 錄自己的聲音 🎤</h1>
 <div class="prog" id="prog">載入中…</div>
 <div class="bar"><i id="barfill"></i></div>
@@ -67,6 +77,7 @@
     <button class="ghost" id="btn-next">下一句 →</button>
   </div>
   <div class="err" id="err"></div>
+  <div class="fix hidden" id="fix"></div>
 </div>
 
 <div class="export">
@@ -104,6 +115,12 @@ function dbGet(k) { return new Promise((res, rej) => { const r = db.transaction(
 function dbKeys() { return new Promise((res, rej) => { const r = db.transaction('clips').objectStore('clips').getAllKeys(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
 
 async function boot() {
+  if (IN_APP) $('warn').classList.remove('hidden');     // 內建瀏覽器：一進來就擋，不要讓他錄到一半才發現
+  else if (!window.isSecureContext) {
+    $('warn').classList.remove('hidden');
+    $('warn-text').innerHTML = '⚠️ 這個網址不是 https，手機不會開放麥克風。<br>請改用 https://fooicebo-wq.github.io/girl-adventure/rec/';
+    $('btn-open').classList.add('hidden');
+  }
   try { db = await openDB(); done = new Set(await dbKeys()); }
   catch (e) { $('err').textContent = '這個瀏覽器不能存檔：' + e.message; }
   buildGrid();
@@ -151,10 +168,37 @@ function meterOn() {
 }
 function meterOff() { clearInterval(meterTimer); meterTimer = null; $('meterfill').style.width = '0'; }
 
+// App 內建瀏覽器（LINE/FB/IG）不會跟使用者要麥克風權限，一定失敗，先擋在前面
+const IN_APP = /(Line\/|FBAN|FBAV|FB_IAB|Instagram|MicroMessenger|; wv\))/i.test(navigator.userAgent || '');
+function openInChrome() {
+  const bare = location.href.split('#')[0].replace(/^https?:\/\//, '');
+  if (/Android/i.test(navigator.userAgent)) {
+    setTimeout(() => { $('warn-text').innerHTML = '沒跳到 Chrome？請按右上角「⋯」→「用其他瀏覽器開啟」'; }, 1500);
+    location.href = 'intent://' + bare + '#Intent;scheme=https;package=com.android.chrome;end';
+  } else {
+    try { navigator.clipboard && navigator.clipboard.writeText(location.href.split('#')[0]); } catch (e) {}
+    $('warn-text').innerHTML = '網址已複製！請按下方分享鍵 →「在 Safari 中打開」再錄';
+  }
+}
+
+// 把失敗原因翻成「你現在該按哪裡」
+function micHelp(e) {
+  const msg = String((e && (e.message || e.name)) || e);
+  if (IN_APP) return '這是 App 的內建瀏覽器，它不會跟你要麥克風權限。<br>請按上面那顆「用 Chrome 開啟」。';
+  if (/system/i.test(msg)) return '是手機系統擋的：<br>設定 → 應用程式 → Chrome → 權限 → 麥克風 → 允許<br>然後回來重新整理這一頁。';
+  if (/NotFound|Requested device/i.test(msg)) return '找不到麥克風，請檢查有沒有接耳機或被其他 App 佔用。';
+  if (/NotAllowed|Permission denied|denied/i.test(msg)) return '這個網站的麥克風被設成「封鎖」了：<br>按網址列左邊的 🔒 或 ⓘ → 權限 →  麥克風 → 允許 → 重新整理<br>（第一次使用要按「允許」，不小心按到封鎖就會變這樣）';
+  return '錯誤訊息：' + msg;
+}
+
 async function toggleRec() {
   if (recording) { rec.stop(); return; }
-  $('err').textContent = '';
-  try { await getMic(); } catch (e) { $('err').textContent = '拿不到麥克風：' + e.message + '（請允許麥克風）'; return; }
+  $('err').textContent = ''; $('fix').classList.add('hidden');
+  try { await getMic(); } catch (e) {
+    $('err').textContent = '拿不到麥克風（' + ((e && e.name) || '?') + '）';
+    $('fix').innerHTML = micHelp(e); $('fix').classList.remove('hidden');
+    return;
+  }
   chunks = [];
   rec = new MediaRecorder(media);
   rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
@@ -266,6 +310,7 @@ $('btn-prev').onclick = () => { if (idx > 0) { idx--; show(); } };
 $('btn-next').onclick = () => { if (idx < LINES.length - 1) { idx++; show(); } };
 $('btn-sample').onclick = () => { new Audio('../voice/' + LINES[idx].id + '.mp3').play().catch(() => {}); };
 $('btn-export').onclick = exportAll;
+$('btn-open').onclick = openInChrome;
 boot();
 </script>
 </body>
