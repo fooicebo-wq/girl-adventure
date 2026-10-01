@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Q妹救爸記 · 手機錄音</title>
+<style>
+  :root { --bg:#161b2b; --card:#222941; --line:rgba(255,255,255,.18); --gold:#ffd166; --green:#06d6a0; --red:#ff5e57; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; padding:16px 14px 40px; background:var(--bg); color:#fff;
+         font-family:"Microsoft JhengHei","PingFang TC",system-ui,sans-serif; }
+  h1 { font-size:24px; margin:0 0 8px; }
+  .prog { font-size:20px; color:var(--gold); font-weight:900; }
+  .bar { height:12px; background:rgba(255,255,255,.12); border-radius:8px; overflow:hidden; margin:10px 0 16px; }
+  .bar i { display:block; height:100%; width:0; background:linear-gradient(90deg,#06d6a0,#ffd166); transition:width .2s; }
+
+  .card { background:var(--card); border:2px solid var(--line); border-radius:20px; padding:18px 16px; }
+  .no { font-size:17px; color:#9fb3d1; }
+  .text { font-size:40px; font-weight:900; line-height:1.35; margin:10px 0 14px; }
+  .state { font-size:19px; font-weight:800; min-height:28px; }
+  .state.rec { color:var(--red); } .state.ok { color:var(--green); }
+  .meter { height:18px; background:rgba(255,255,255,.1); border-radius:10px; overflow:hidden; margin:12px 0 16px; }
+  .meter i { display:block; height:100%; width:0; background:linear-gradient(90deg,#06d6a0,#ffd166,#ff5e57); }
+
+  button { font-family:inherit; font-weight:900; cursor:pointer; color:#1a1a1a; border:3px solid rgba(255,255,255,.5);
+           background:linear-gradient(#ffd45a,#ff9f1c); border-radius:40px; }
+  button:active { transform:translateY(2px); }
+  button[disabled] { opacity:.35; }
+  #btn-rec { width:100%; font-size:30px; padding:22px 10px; margin-bottom:12px; }
+  #btn-rec.on { background:linear-gradient(#ff8a80,#ff3b30); color:#fff; }
+  .row2 { display:flex; gap:10px; }
+  .row2 button { flex:1; font-size:19px; padding:14px 6px; }
+  .ghost { background:rgba(255,255,255,.12); color:#fff; border-color:var(--line); }
+  .go { background:linear-gradient(#7ef7cf,#06d6a0); }
+
+  .hint { font-size:16px; line-height:1.7; color:#cfe0f5; margin-top:16px;
+          background:rgba(0,0,0,.3); border-left:5px solid #5ec8f0; padding:12px 14px; border-radius:10px; }
+  .grid { display:flex; flex-wrap:wrap; gap:6px; margin-top:18px; }
+  .g { font-size:15px; font-weight:800; padding:7px 0; border-radius:8px; width:13.2%; text-align:center;
+       background:rgba(255,255,255,.08); border:2px solid transparent; }
+  .g.done { background:rgba(6,214,160,.25); border-color:var(--green); }
+  .g.cur { border-color:var(--gold); }
+  .export { margin-top:22px; }
+  .export button { width:100%; font-size:24px; padding:18px 10px; }
+  .err { color:#ff9f9f; font-size:17px; font-weight:800; margin-top:12px; }
+</style>
+</head>
+<body>
+<h1>Q妹救爸記 · 錄自己的聲音 🎤</h1>
+<div class="prog" id="prog">載入中…</div>
+<div class="bar"><i id="barfill"></i></div>
+
+<div class="card">
+  <div class="no" id="no">—</div>
+  <div class="text" id="text">—</div>
+  <div class="state" id="state">　</div>
+  <div class="meter"><i id="meterfill"></i></div>
+  <button id="btn-rec">● 按一下開始錄</button>
+  <div class="row2">
+    <button class="ghost" id="btn-sample">🔊 範例</button>
+    <button class="ghost" id="btn-play" disabled>▶ 試聽</button>
+    <button class="go" id="btn-save" disabled>✓ 存起來</button>
+  </div>
+  <div class="row2" style="margin-top:10px">
+    <button class="ghost" id="btn-prev">← 上一句</button>
+    <button class="ghost" id="btn-next">下一句 →</button>
+  </div>
+  <div class="err" id="err"></div>
+</div>
+
+<div class="export">
+  <button id="btn-export">📦 匯出全部錄音（傳給爸爸的電腦）</button>
+</div>
+
+<div class="hint">
+  <b>怎麼錄：</b>按大按鈕開始 → 唸出上面那句話 → 再按一次停止 → 自動播給你聽 → 滿意就按「存起來」。<br>
+  <b>小技巧：</b>嘴巴離手機一個拳頭遠，開口前後各停半秒，音量條有跳到一半以上最好。<br>
+  錄好的會留在這支手機裡，關掉網頁再打開也還在。<b>全部錄完（或錄累了）按最下面的「匯出全部錄音」</b>，
+  會存成一個檔案，用 LINE 傳給爸爸的電腦就好。
+</div>
+
+<div class="grid" id="grid"></div>
+
+<script src="lines.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let idx = 0, done = new Set(), db = null;
+let media = null, rec = null, chunks = [], recording = false;
+let lastWav = null, lastUrl = null, ac = null, analyser = null, meterTimer = null;
+
+// ---------- 存在手機裡（IndexedDB），關掉網頁也不會不見 ----------
+function openDB() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('qgirl-rec', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('clips');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+function dbPut(k, v) { return new Promise((res, rej) => { const t = db.transaction('clips', 'readwrite'); t.objectStore('clips').put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
+function dbGet(k) { return new Promise((res, rej) => { const r = db.transaction('clips').objectStore('clips').get(k); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+function dbKeys() { return new Promise((res, rej) => { const r = db.transaction('clips').objectStore('clips').getAllKeys(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+
+async function boot() {
+  try { db = await openDB(); done = new Set(await dbKeys()); }
+  catch (e) { $('err').textContent = '這個瀏覽器不能存檔：' + e.message; }
+  buildGrid();
+  idx = LINES.findIndex(l => !done.has(l.id)); if (idx < 0) idx = 0;
+  show();
+}
+function buildGrid() {
+  const g = $('grid'); g.innerHTML = '';
+  LINES.forEach((l, i) => {
+    const d = document.createElement('div');
+    d.className = 'g' + (done.has(l.id) ? ' done' : '');
+    d.textContent = i + 1;
+    d.onclick = () => { idx = i; show(); };
+    g.appendChild(d);
+  });
+}
+function show() {
+  const l = LINES[idx];
+  $('no').textContent = `第 ${idx + 1} 句 / 共 ${LINES.length} 句`;
+  $('text').textContent = l.text;
+  $('prog').textContent = `已錄 ${done.size} / ${LINES.length} 句`;
+  $('barfill').style.width = (done.size / LINES.length * 100) + '%';
+  $('state').textContent = done.has(l.id) ? '✓ 這句錄過了（可以重錄）' : '　';
+  $('state').className = 'state' + (done.has(l.id) ? ' ok' : '');
+  $('btn-play').disabled = true; $('btn-save').disabled = true; lastWav = null;
+  [...$('grid').children].forEach((d, i) => d.classList.toggle('cur', i === idx));
+}
+
+// ---------- 錄音 ----------
+async function getMic() {
+  if (media) return media;
+  media = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
+  ac = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = ac.createAnalyser(); analyser.fftSize = 1024;
+  ac.createMediaStreamSource(media).connect(analyser);
+  return media;
+}
+function meterOn() {
+  const buf = new Uint8Array(analyser.fftSize);
+  meterTimer = setInterval(() => {
+    analyser.getByteTimeDomainData(buf);
+    let peak = 0; for (const v of buf) peak = Math.max(peak, Math.abs(v - 128) / 128);
+    $('meterfill').style.width = Math.min(100, peak * 140) + '%';
+  }, 60);
+}
+function meterOff() { clearInterval(meterTimer); meterTimer = null; $('meterfill').style.width = '0'; }
+
+async function toggleRec() {
+  if (recording) { rec.stop(); return; }
+  $('err').textContent = '';
+  try { await getMic(); } catch (e) { $('err').textContent = '拿不到麥克風：' + e.message + '（請允許麥克風）'; return; }
+  chunks = [];
+  rec = new MediaRecorder(media);
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  rec.onstop = async () => {
+    recording = false; meterOff();
+    $('btn-rec').textContent = '● 按一下開始錄'; $('btn-rec').classList.remove('on');
+    $('state').textContent = '處理中…'; $('state').className = 'state';
+    try {
+      lastWav = await blobToWav(new Blob(chunks, { type: chunks[0] ? chunks[0].type : 'audio/webm' }));
+      if (lastUrl) URL.revokeObjectURL(lastUrl);
+      lastUrl = URL.createObjectURL(lastWav);
+      $('btn-play').disabled = false; $('btn-save').disabled = false;
+      $('state').textContent = '錄好了！聽聽看，滿意就按「存起來」'; $('state').className = 'state ok';
+      new Audio(lastUrl).play().catch(() => {});
+    } catch (e) { $('err').textContent = '處理失敗：' + e.message; }
+  };
+  rec.start(); recording = true; meterOn();
+  $('btn-rec').textContent = '■ 停止'; $('btn-rec').classList.add('on');
+  $('state').textContent = '● 錄音中…請唸出上面那句'; $('state').className = 'state rec';
+}
+
+// 轉成 22050Hz 單聲道 WAV（跟遊戲用的格式一樣，檔案也小）
+async function blobToWav(blob) {
+  const ab = await blob.arrayBuffer();
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const buf = await new Promise((res, rej) => { const p = ctx.decodeAudioData(ab, res, rej); if (p && p.then) p.then(res, rej); });
+  const SR = 22050;
+  const off = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, Math.ceil(buf.duration * SR), SR);
+  const s = off.createBufferSource(); s.buffer = buf; s.connect(off.destination); s.start();
+  const out = await off.startRendering();
+  ctx.close();
+  const ch = out.getChannelData(0), n = ch.length;
+  const dv = new DataView(new ArrayBuffer(44 + n * 2));
+  const str = (o, t) => { for (let i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)); };
+  str(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt ');
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, SR, true); dv.setUint32(28, SR * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+  str(36, 'data'); dv.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) { const v = Math.max(-1, Math.min(1, ch[i])); dv.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true); }
+  return new Blob([dv.buffer], { type: 'audio/wav' });
+}
+
+async function save() {
+  if (!lastWav) return;
+  $('btn-save').disabled = true;
+  try {
+    await dbPut(LINES[idx].id, lastWav);
+    done.add(LINES[idx].id);
+    $('grid').children[idx].classList.add('done');
+    if (idx < LINES.length - 1) idx++;
+    show();
+  } catch (e) { $('err').textContent = '存檔失敗：' + e.message; $('btn-save').disabled = false; }
+}
+
+// ---------- 匯出：自己組一個 ZIP（不壓縮），不需要外掛 ----------
+const CRC = (() => { const t = new Uint32Array(256); for (let i = 0; i < 256; i++) { let c = i; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[i] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zip(files) {                       // files: [{name, data:Uint8Array}]
+  const parts = [], central = []; let off = 0;
+  const enc = new TextEncoder();
+  for (const f of files) {
+    const nm = enc.encode(f.name), crc = crc32(f.data), sz = f.data.length;
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0, true); lh.setUint16(8, 0, true);
+    lh.setUint16(10, 0, true); lh.setUint16(12, 0, true); lh.setUint32(14, crc, true);
+    lh.setUint32(18, sz, true); lh.setUint32(22, sz, true); lh.setUint16(26, nm.length, true); lh.setUint16(28, 0, true);
+    parts.push(new Uint8Array(lh.buffer), nm, f.data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0, true);
+    ch.setUint16(10, 0, true); ch.setUint16(12, 0, true); ch.setUint16(14, 0, true); ch.setUint32(16, crc, true);
+    ch.setUint32(20, sz, true); ch.setUint32(24, sz, true); ch.setUint16(28, nm.length, true);
+    ch.setUint16(30, 0, true); ch.setUint16(32, 0, true); ch.setUint16(34, 0, true); ch.setUint16(36, 0, true);
+    ch.setUint32(38, 0, true); ch.setUint32(42, off, true);
+    central.push(new Uint8Array(ch.buffer), nm);
+    off += 30 + nm.length + sz;
+  }
+  const cdSize = central.reduce((a, b) => a + b.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, off, true); end.setUint16(20, 0, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: 'application/zip' });
+}
+
+async function exportAll() {
+  const keys = (await dbKeys()).sort();
+  if (!keys.length) { $('err').textContent = '還沒有任何錄音'; return; }
+  $('btn-export').disabled = true; $('btn-export').textContent = '打包中…';
+  try {
+    const files = [];
+    for (const k of keys) {
+      const b = await dbGet(k);
+      files.push({ name: k + '.wav', data: new Uint8Array(await b.arrayBuffer()) });
+    }
+    const blob = zip(files);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'Q妹錄音_' + keys.length + '句.zip';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    $('state').textContent = `已匯出 ${keys.length} 句，請用 LINE 傳給電腦`; $('state').className = 'state ok';
+  } catch (e) { $('err').textContent = '匯出失敗：' + e.message; }
+  $('btn-export').disabled = false; $('btn-export').textContent = '📦 匯出全部錄音（傳給爸爸的電腦）';
+}
+
+$('btn-rec').onclick = toggleRec;
+$('btn-play').onclick = () => { if (lastUrl) new Audio(lastUrl).play(); };
+$('btn-save').onclick = save;
+$('btn-prev').onclick = () => { if (idx > 0) { idx--; show(); } };
+$('btn-next').onclick = () => { if (idx < LINES.length - 1) { idx++; show(); } };
+$('btn-sample').onclick = () => { new Audio('../voice/' + LINES[idx].id + '.mp3').play().catch(() => {}); };
+$('btn-export').onclick = exportAll;
+boot();
+</script>
+</body>
+</html>
